@@ -4,6 +4,7 @@
 #library(tmap)
 library(dplyr)
 library(fields)
+library(geoR)
 #load data
 
 madrid <- read.csv(file="E:/STAT647/Homework/Data/madrid_2015.csv")
@@ -32,10 +33,14 @@ madrid_june_01 <- madrid_date_id[(madrid_date_id$date==as.Date("2015-06-01")),]
 
 #summary data
 summary(madrid_june_01)
-hist(madrid_june_01$PM10,breaks=15:37)
+hist(madrid_june_01$PM10,breaks=8,xlim=c(15,40),main="Histogram of PM10 on June 01, 2015", xlab="PM10")
 #does not work because of missing values
 density(madrid_june_01$PM10,bw="sj")
 qqnorm(madrid_june_01$PM10)
+qqline(madrid_june_01$PM10)
+
+shapiro.test(madrid_june_01$PM10)
+
 plot(madrid_june_01)
 
 #read in station information
@@ -49,11 +54,18 @@ quilt.plot(madrid_air$lat,madrid_air$lon,madrid_air$PM10)
 
 #construct variograms?
 # data is lon, lat
-my_vgram <- vgram(madrid_air[,c(17,18)],madrid_air$PM10)
+my_vgram <- vgram(madrid_air[,c(17,18)],madrid_air$PM10,lon.lat = TRUE,dmax=6)
 
 #plot my_vgram
 plot(my_vgram)
 
 #boxplot vgram
 
-boxplot(my_vgram$vgram ~ cut(my_vgram$d,6),xlabel=bins)
+boxplotVGram(my_vgram)
+#boxplot(my_vgram$vgram ~ cut(my_vgram$d,6),xlabel=bins)
+
+#Run GeoR
+madrid_no_na <- madrid_air[!is.na(madrid_air$PM10),]
+v2 <- variog4(coords = madrid_no_na[,c(17,18)], data = madrid_no_na$PM10)
+plot(v2) 
+
