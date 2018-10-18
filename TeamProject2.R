@@ -65,20 +65,20 @@ boxplotVGram(v1)
 #run ols
 D <- rdist.earth(madrid_air[!is.na(madrid_air$PM10),c('lat','lon')])
 
-temp <- vgram(D,m1$residuals) 
+temp <- vgram(D,m1$residuals,N=5) 
 plot(temp)
 boxplotVGram(temp)
 d <- temp$centers
 semi.variogram <- temp$stats[2,]
-
+par <- c(0.1,0.1,.5,6)
 ols=function(par){
   
   alpha=par[1]
   beta=par[2]
   nu=par[3]
-  nugget
+  nugget=par[4]
   
-  S <- alpha*Matern(d, smoothness=nu, range=beta)
+  S <- alpha*Matern(D, smoothness=nu, range=beta)
   diag(S) <- diag(S) + nugget
   
   SSE=sum((semi.variogram-S))
@@ -105,7 +105,7 @@ mle=function(par){
   S=alpha*Matern(D, smoothness=nu, range=beta)
   diag(S)= diag(S) + delta
   
-  mu=b0+b1*X +b2*(X^2)
+  mu=b0+b1*madrid_air$lat +b2*madrid_air$lon
   
   temp=(determinant(S, logarithm=T)$modulus + t(z-mu) %*% solve(S) %*% (z-mu))/2
   return(temp)
@@ -117,6 +117,16 @@ fit.mle=nlm(mle, ini,print.level=2,iterlim=10000)
 
 par=fit.mle$estimate
 
+back2 <- function(par){
+  result <- c(exp(par[1]),
+              exp(par[2]),
+              par[3],
+              par[4],
+              par[5],
+              exp(par[6]),
+              5*exp(par[7])/(1+exp(par[7])))
+  return(result)
+}
 
 #transform back MLE
 
@@ -133,7 +143,7 @@ b2=par[7]
 
 ### REML
 
-
+pars <- c(0,5,0,-5)
 REML.l.matern=function(pars){
   
   cat("raw parameters",pars,"\n")
@@ -149,14 +159,16 @@ REML.l.matern=function(pars){
   
   cat("transformed covariance parameters",pars[1:4],"\n")
   
-  cov <- alpha*(D/beta)^nu*besselK(D/beta,nu)/(2^(nu-1)*gamma(nu))
-  diag(cov) <- alpha+delta
+  cov_v <- alpha*(D/beta)^nu*besselK(D/beta,nu)/(2^(nu-1)*gamma(nu))
+  diag(cov_v) <- alpha+delta
   
-  temp=X^2
-  X=cbind(rep(1, dim(D)[1]), X,temp)
-  Z=matrix(z, ncol=1)
+  t1 <- madrid_air[!is.na(madrid_air$PM10),c('lat')]
+  t2 <- madrid_air[!is.na(madrid_air$PM10),c('lon')]
+  t3 <- madrid_air[!is.na(madrid_air$PM10),c('PM10')]
+  X=cbind(rep(1, dim(D)[1]), t1,t2)
+  Z=matrix(t3, ncol=1)
   
-  temp <- chol(cov)
+  temp <- chol(cov_v)
   a=forwardsolve(t(temp),X)
   b=t(X) %*% backsolve(temp, a)
   
