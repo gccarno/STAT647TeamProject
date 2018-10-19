@@ -51,7 +51,7 @@ par(mfrow=c(2,2))
 m1 <- lm(PM10 ~ lat + lon, data=madrid_air)
 summary(m1)
 plot(m1)
-m2 <- lm(PM10 ~ SO_2, data=madrid_air)
+m2 <- lm(PM10 ~ NO + NO_2, data=madrid_air)
 summary(m2)
 plot(m2)
 
@@ -63,9 +63,10 @@ plot(v1)
 boxplotVGram(v1)
 
 #run ols
+loc1 <- madrid_air[!is.na(madrid_air$PM10),c('lat','lon')]
 D <- rdist.earth(madrid_air[!is.na(madrid_air$PM10),c('lat','lon')])
 
-temp <- vgram(D,m1$residuals,N=5) 
+temp <- vgram(loc1,m1$residuals,N=5) 
 plot(temp)
 boxplotVGram(temp)
 d <- temp$centers
@@ -89,8 +90,11 @@ ols=function(par){
 fit.ols=nlm(ols, c(0.1,0.1,.5,6),print.level=2,iterlim=10000)
 
 # mle function
+t1 <- madrid_air[!is.na(madrid_air$PM10),c('lat')]
+t2 <- madrid_air[!is.na(madrid_air$PM10),c('lon')]
+t3 <- madrid_air[!is.na(madrid_air$PM10),c('PM10')]
 
-mle=function(par){
+mle.1=function(par){
   
   alpha=exp(par[1])
   beta=exp(par[2])
@@ -105,28 +109,29 @@ mle=function(par){
   S=alpha*Matern(D, smoothness=nu, range=beta)
   diag(S)= diag(S) + delta
   
-  mu=b0+b1*madrid_air$lat +b2*madrid_air$lon
+  mu=b0+b1*t1 +b2*t2
   
-  temp=(determinant(S, logarithm=T)$modulus + t(z-mu) %*% solve(S) %*% (z-mu))/2
+  temp=(determinant(S, logarithm=T)$modulus + t(t3-mu) %*% solve(S) %*% (t3-mu))/2
   return(temp)
 }
 
-ini=c( 0,6 ,-2,-5,-0.01, 0.37, -0.12)
 
-fit.mle=nlm(mle, ini,print.level=2,iterlim=10000)
+ini=c( 3.3038, -0.8093,  0.4857, -4.9732,-3304.78, 85.10, 30.45)
 
-par=fit.mle$estimate
+fit.mle1=nlm(mle.1, ini,print.level=2,stepmax=3, iterlim=10000)
 
-back2 <- function(par){
-  result <- c(exp(par[1]),
-              exp(par[2]),
-              par[3],
-              par[4],
-              par[5],
-              exp(par[6]),
-              5*exp(par[7])/(1+exp(par[7])))
-  return(result)
+par1=fit.mle1$estimate
+
+orig_scale <- function (par){
+  par[1:4] <- exp(par[1:4])
+  par[3]=5*pars[3]/(1+par[3])
+  return(par)
 }
+
+options("scipen"=100, "digits"=4)
+par1_orig <- orig_scale(par1)
+names(par1_orig) <- c('alpha','beta','nu','nugget/delta','beta0', 'beta1','beta2')
+par1_orig
 
 #transform back MLE
 
@@ -157,18 +162,19 @@ REML.l.matern=function(pars){
   
   delta=(pars[4]) ## nugget
   
-  cat("transformed covariance parameters",pars[1:4],"\n")
-  
-  cov_v <- alpha*(D/beta)^nu*besselK(D/beta,nu)/(2^(nu-1)*gamma(nu))
-  diag(cov_v) <- alpha+delta
+  #cat("transformed covariance parameters",pars[1:4],"\n")
   
   t1 <- madrid_air[!is.na(madrid_air$PM10),c('lat')]
   t2 <- madrid_air[!is.na(madrid_air$PM10),c('lon')]
   t3 <- madrid_air[!is.na(madrid_air$PM10),c('PM10')]
+  
+  cov <- alpha*(D/beta)^nu*besselK(D/beta,nu)/(2^(nu-1)*gamma(nu))
+  diag(cov) <- alpha+delta
+  
   X=cbind(rep(1, dim(D)[1]), t1,t2)
   Z=matrix(t3, ncol=1)
   
-  temp <- chol(cov_v)
+  temp <- chol(cov)
   a=forwardsolve(t(temp),X)
   b=t(X) %*% backsolve(temp, a)
   
@@ -187,11 +193,23 @@ REML.l.matern=function(pars){
   b=t(r) %*% backsolve(temp, a)
   
   temp4 <- (temp1+temp2+b)/2
-  cat("reml loglikelihood",-temp4,"\n")
+  #cat("reml loglikelihood",-temp4,"\n")
   
   return(temp4)
 }
 
-ini=c(0,5,0,-5)
+ini=c(-1,0,-2,-5)
 
-fit.reml=nlm(REML.l.matern, ini,print.level=2,iterlim=10000)
+fit.reml=nlm(REML.l.matern, ini,print.level=2, stepmax=2,iterlim=10000)
+
+par3 <- fit.reml$estimate
+
+orig_scale <- function (par){
+  par[1:4] <- exp(par[1:4])
+  par[3]=5*pars[3]/(1+par[3])
+  return(par)
+}
+par_orig <- orig_scale(par3)
+names(par_orig) <- c('alpha','beta','nu','nugget/delta')
+par_orig
+
