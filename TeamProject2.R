@@ -78,12 +78,12 @@ ols=function(par){
   S <- alpha*Matern(d, smoothness=nu, range=beta)
   S <- S + delta
   
-  SSE=sum((semi.variogram-S))
+  SSE=sum((semi.variogram-S)^2)
   
   return(SSE)
 }
 
-fit.ols=nlm(ols, c(2, 2.303,  0.4857, -3),print.level=2,iterlim=10000)
+fit.ols=nlm(ols, c(2, 2.303,  0.4857, -3),print.level=2,stepmax = 2,iterlim=10000)
 par_ols <- fit.ols$estimate
 orig_scale <- function (par){
   par[1:4] <- exp(par[1:4])
