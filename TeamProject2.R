@@ -61,7 +61,7 @@ plot(m2)
 loc1 <- madrid_air[!is.na(madrid_air$PM10),c('lat','lon')]
 D <- rdist.earth(madrid_air[!is.na(madrid_air$PM10),c('lat','lon')], miles=FALSE)
 
-temp <- vgram(D,m1$residuals,N=5) 
+temp <- vgram(D,m1$residuals,N=10,dmax=20) 
 plot(temp)
 boxplotVGram(temp)
 d <- temp$centers
@@ -69,20 +69,32 @@ semi.variogram <- temp$stats[2,]
 par <- c(0.1,0.1,.5,6)
 ols=function(par){
   
-  alpha=par[1]
-  beta=par[2]
-  nu=par[3]
-  nugget=par[4]
+  alpha=exp(par[1])
+  beta=exp(par[2])
+  nu=5*exp(par[3])/(1+exp(par[3]))
   
-  S <- alpha*Matern(D, smoothness=nu, range=beta)
-  diag(S) <- diag(S) + nugget
+  delta=exp(par[4])
+  
+  S <- alpha*Matern(d, smoothness=nu, range=beta)
+  S <- S + delta
   
   SSE=sum((semi.variogram-S))
   
   return(SSE)
 }
 
-fit.ols=nlm(ols, c(0.1,0.1,.5,6),print.level=2,iterlim=10000)
+fit.ols=nlm(ols, c(2, 2.303,  0.4857, -3),print.level=2,iterlim=10000)
+par_ols <- fit.ols$estimate
+orig_scale <- function (par){
+  par[1:4] <- exp(par[1:4])
+  par[3]=5*pars[3]/(1+par[3])
+  return(par)
+}
+
+options("scipen"=100, "digits"=4)
+par_ols_orig <- orig_scale(par_ols)
+names(par_ols_orig) <- c('alpha','beta','nu','nugget/delta')
+par_ols_orig
 
 # mle function
 t1 <- madrid_air[!is.na(madrid_air$PM10),c('lat')]
