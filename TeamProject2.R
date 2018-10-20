@@ -7,6 +7,8 @@ library(fields)
 library(geoR)
 #load data
 
+cor(madrid_june_01[2:14], use="pairwise.complete.obs")
+
 madrid <- read.csv(file="E:/STAT647/Homework/Data/madrid_2015.csv")
 #rename the column with station id to allow merging
 colnames(madrid)[14] <- "id"
@@ -55,18 +57,11 @@ m2 <- lm(PM10 ~ NO + NO_2, data=madrid_air)
 summary(m2)
 plot(m2)
 
-#run vgrams using the residuals from model 1
-#running in miles? how to do in KM?
-v1 <- vgram(c,m1$residuals,lon.lat = TRUE,dmax=6)
-par(mfrow=c(1,2))
-plot(v1)
-boxplotVGram(v1)
-
 #run ols
 loc1 <- madrid_air[!is.na(madrid_air$PM10),c('lat','lon')]
-D <- rdist.earth(madrid_air[!is.na(madrid_air$PM10),c('lat','lon')])
+D <- rdist.earth(madrid_air[!is.na(madrid_air$PM10),c('lat','lon')], miles=FALSE)
 
-temp <- vgram(loc1,m1$residuals,N=5) 
+temp <- vgram(D,m1$residuals,N=5) 
 plot(temp)
 boxplotVGram(temp)
 d <- temp$centers
@@ -116,7 +111,7 @@ mle.1=function(par){
 }
 
 
-ini=c( 3.3038, -0.8093,  0.4857, -4.9732,-3304.78, 85.10, 30.45)
+ini=c( 3.3038, 2.303,  0.4857, -4.9732,-3304.78, 85.10, 30.45)
 
 fit.mle1=nlm(mle.1, ini,print.level=2,stepmax=3, iterlim=10000)
 
