@@ -220,3 +220,11 @@ par_orig <- orig_scale(par3)
 names(par_orig) <- c('alpha','beta','nu','nugget/delta')
 par_orig
 
+M <- cbind(rep(1,12),t2,t1)
+Z <- cbind(t3)
+
+K=par_orig[1]*Matern(D, smoothness=par_orig[3], range=par_orig[2])
+diag(K) <- diag(K) + par_orig[4]
+
+reg.beta= solve(t(M) %*% solve(K) %*% M) %*% 
+  t(M) %*% solve(K) %*% Z
