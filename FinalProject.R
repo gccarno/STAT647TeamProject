@@ -136,7 +136,7 @@ library(ggmap)
 library(mapproj)
 #this api_key is needed to download maps '
 map('state')
-api_key <- 'AIzaSyB_GuI3t_vUqIR3fuvq4NRKQ7HtySs03dU'
+
 get_map(location = "houston")
 baylor <- qmap(location = "baylor university", zoom = 14, maptype = 15434,
      source = "cloudmade", api_key = api_key)
