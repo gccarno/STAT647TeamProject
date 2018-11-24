@@ -112,16 +112,17 @@ madrid_air <- rbind(madrid_air_25,
                     madrid_air_08,
                     madrid_air_09,
                     madrid_air_10,
-                    madrid_air_11,
-                    madrid_air_12,
-                    madrid_air_13,
-                    madrid_air_14,
-                    madrid_air_15,
-                    madrid_air_16)
+                    madrid_air_11)
+                    # madrid_air_12,
+                    # madrid_air_13,
+                    # madrid_air_14,
+                    # madrid_air_15,
+                    # madrid_air_16)
 #count NA's by station ID and date for PM10
 #madrid_air %>% filter(group == date & is.na(PM10))
 #madrid_air %>% filter(group == id & is.na(PM10))
 
+#On 6/12 the data becomes missing
 aggregate(PM10 ~ date, data=madrid_air, function(x) {sum(is.na(x))}, na.action = NULL)
 aggregate(PM10 ~ id, data=madrid_air, function(x) {sum(is.na(x))}, na.action = NULL)
 
@@ -136,9 +137,253 @@ library(ggmap)
 library(mapproj)
 #this api_key is needed to download maps '
 map('state')
-
-get_map(location = "houston")
+#load this from a file instead
+fileName <- 'E:/STAT647/TeamProject/api_key.txt'
+api_key <- readChar(fileName, file.info(fileName)$size)
+get_map(location = "houston",source='osm')
 baylor <- qmap(location = "baylor university", zoom = 14, maptype = 15434,
      source = "cloudmade", api_key = api_key)
 qmplot(madrid_no_na$lon, madrid_no_na$lat, data = madrid_no_na
        , colour = PM10, size = PM10, darken = .3)
+
+
+
+#Run the non-stationary model
+
+#get distance 
+
+#run the lasso regression
+#running the lasso on the full data over many days
+
+
+
+### model with spatially varying variance ###
+
+lat <- madrid_air_01[!is.na(madrid_air_01$PM10),'lat']
+lon <- madrid_air_01[!is.na(madrid_air_01$PM10),'lon']
+PM10 <- madrid_air_01[!is.na(madrid_air_01$PM10),'PM10']
+loc0 <- madrid_air_01[,c('lon','lat')]
+
+#quilt plot
+quilt.plot(madrid_air_01[,c('lat')],madrid_air_01[,c('lon')],madrid_air_01[,c('PM10')])
+
+#variogram
+m1 <- lm(PM10 ~ lat + lon, data=madrid_air_01)
+summary(m1)
+plot(m1)
+
+#run ols
+loc1 <- madrid_air_01[!is.na(madrid_air_01$PM10),c('lat','lon')]
+D <- rdist.earth(madrid_air_01[!is.na(madrid_air_01$PM10),c('lat','lon')], miles=FALSE)
+
+temp <- vgram(D,m1$residuals,N=10,dmax=20) 
+plot(temp)
+boxplotVGram(temp)
+
+#Isotropic Matern
+par=c( 2,2.3,0,-3304.78, 85.10, 30.45)
+mle.1=function(par){
+  
+  alpha=exp(par[1])
+  beta=exp(par[2])
+  nu=5*exp(par[3])/(1+exp(par[3]))
+  
+  #nug=exp(par[4])
+  
+  b0=par[5]
+  b1=par[6]
+  b2=par[7]
+  
+  S=alpha*Matern(D, smoothness=nu, range=beta)
+  #diag(S)= diag(S)+ nug
+  
+  mu=b0+b1*lat +b2*lon
+  
+  temp=(determinant(S, logarithm=T)$modulus + t(PM10-mu) %*% chol2inv(chol(S)) %*% (PM10-mu))/2
+  return(temp)
+}
+
+
+ini=c( 3,2.3,17,0,-3304.78, 85.10, 30.45)
+
+fit.mle1=nlm(mle.1, ini,print.level=2,stepmax=2, iterlim=10000)
+
+#parameter estimates
+back.mle2 <- function(par){
+  alpha=exp(par[1])
+  beta=exp(par[2])
+  nu=3*exp(par[3])/(1+exp(par[3]))
+  #nug=exp(par[4])
+  b0=par[5]
+  b1=par[6]
+  b2=par[7]
+  p_list <- c(alpha, beta, nu, b0, b1, b2)
+  return(p_list)1
+}
+iso.par <- back.mle2(fit.mle1$estimate)
+names(iso.par) <- c('alpha','beta','nu','nugget','b0','b1','b2')
+print(iso.par)
+
+#MLE
+(iso.mle <- -1/2*log(2*pi) + fit.mle1$minimum)
+
+#AIC 
+(iso.AIC <- AIC(iso.mle,7))
+
+# run with REML instead?
+
+#spatially varying model
+mle3=function(par){ 
+  
+  alpha=exp(par[1])
+  beta=exp(par[2])
+  nu=3*exp(par[3])/(1+exp(par[3]))
+  #nug=par[4]
+  
+  b0=par[4]
+  b1=par[5]
+  b2=par[6]
+  
+  #vary over longitude
+  alpha=alpha + exp(par[7]) * lon
+  alpha= matrix(alpha, ncol=1) %*% matrix(alpha, nrow=1)
+  
+  S=alpha*Matern(D, smoothness=nu, range=beta) #+ nug
+  
+  mu=b0+b1*lat + b2*lon
+  
+  temp=(determinant(S, logarithm=T)$modulus + t(PM10-mu) %*% chol2inv(chol(S)) %*% (PM10-mu))/2
+  return(temp)
+}
+
+ini=c( 1.694,2.3,17,-3304,85,30,0)
+#removed nugget because the covariance matrix was not positive definite
+fit.mle3=nlm(mle3, ini,print.level=2,iterlim=10000,stepmax=2)
+
+#parameter estimates
+back.mle2 <- function(par){
+  alpha=exp(par[1])
+  beta=exp(par[2])
+  nu=3*exp(par[3])/(1+exp(par[3]))
+  b0=par[4]
+  b1=par[5]
+  b2=par[6]
+  var=exp(par[7])
+  p_list <- c(alpha, beta, nu, b0, b1, b2, var)
+  return(p_list)
+}
+spatio.par <- back.mle2(fit.mle3$estimate)
+names(spatio.par) <- c('alpha','beta','nu','b0','b1','b2', 'spatial var')
+print(spatio.par)
+
+#MLE
+(spatio.mle <- -1/2*log(2*pi) + fit.mle3$minimum)
+
+#AIC 
+(spatio.AIC <- AIC(spatio.mle,7))
+
+## spatially varying variance
+
+par=fit.mle3$estimate
+
+alpha=exp(par[1])
+beta=exp(par[2])
+nu=5*exp(par[3])/(1+exp(par[3]))
+
+b0=par[4]
+
+alpha=alpha + exp(par[5]) * loc0[,1]
+alpha= matrix(alpha, ncol=1) %*% matrix(alpha, nrow=1)
+
+K=alpha*Matern(D0, smoothness=nu, range=beta)
+
+mu=b0
+
+D2=D[1:100, 101:130]
+
+alpha1=exp(par[1])+exp(par[5]) * loc0[,1]
+alpha2=exp(par[1])+ exp(par[5]) * loc[101:130,1]
+alpha= matrix(alpha1, ncol=1) %*% matrix(alpha2, nrow=1)
+
+k=alpha*Matern(D2, smoothness=nu, range=beta)
+
+weight=solve(K) %*% k 
+
+
+e1=z0-(b0)
+
+krig=t(weight) %*% e1
+
+krig.mle3=krig +(b0)
+
+cbind(krig.mle1,krig.mle2,krig.mle3)
+
+### Space-Time Model
+
+# Matern 
+final <- madrid_air[!is.na(madrid_air$PM10),c('lat','lon','PM10','date')]
+x = final$lon
+y = final$lat
+#sp <- unique(final[,c('lat','lon')])
+D1 = rdist.earth(cbind(x,y), miles = F)
+#tim <- unique(final$date)
+D2 = rdist(final$date)
+z = as.matrix(final$PM10,ncol=1)
+par = c(1.694,2.3,1,-.5,-3000,80,30,0,0,0)
+lik1 = function(par){
+  alpha = exp(par[1])
+  beta1 = exp(par[2])
+  beta2 = exp(par[3])
+  nu = 5*exp(par[4])/(1+exp(par[4]))
+  
+  b0 = par[5]
+  b1 = par[6]
+  b2 = par[7]
+  nugget_st = exp(par[8])
+  nugget_t = exp(par[9])
+  nugget_s = exp(par[10])
+  
+  D = sqrt((D1/beta1)^2+(D2/beta2)^2)
+  
+  S = alpha*Matern(D, smoothness=nu)
+  diag(S)=diag(S)+nugget_st
+  S[which(D2 == 0)]<-S[which(D2 == 0)]+nugget_t
+  S[which(D1 == 0)]<-S[which(D1 == 0)]+nugget_s
+  mu = b0 + b1*x+b2*y
+  
+  temp=(determinant(S, logarithm=T)$modulus + t(z-mu) %*% chol2inv(chol(S)) %*% (z-mu))/2
+  return(temp) 
+}
+
+#ini=c( 1.694,2.3,17,-3304,85,30,0)
+ini = c(0,2.3,1,-.5,-3000,80,30,0,0,0)
+fit1=nlm(lik1, ini,print.level=2,stepmax=2, iterlim=10000)
+
+lik2 = function(par){
+  alpha = exp(par[1])
+  beta1 = exp(par[2])
+  beta2 = exp(par[3])
+  
+  b0 = par[4]
+  b1 = par[5]
+  b2 = par[6]
+  nugget_st = exp(par[7])
+  nugget_t = exp(par[8])
+  nugget_s = exp(par[9])
+  
+  D = sqrt((D1/beta1)^2+(D2/beta2)^2)
+  
+  S = alpha*exp(-D)
+  diag(S)=diag(S)+nugget_st
+  S[which(D2 == 0)]<-S[which(D2 == 0)]+nugget_t
+  S[which(D1 == 0)]<-S[which(D1 == 0)]+nugget_s
+  mu = b0 + b1*x+b2*y
+  
+  temp=(determinant(S, logarithm=T)$modulus + t(z-mu) %*% solve(S) %*% (z-mu))/2
+  return(temp) 
+}
+
+ini2 = c(2.84,.53,3.48,-3000,80,25,-10,-10,-10)
+fit2=nlm(lik2, ini2,print.level=2,stepmax=5, iterlim=10000)
+
+
