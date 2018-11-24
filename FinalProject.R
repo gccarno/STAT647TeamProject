@@ -488,6 +488,8 @@ y1=(diag(1, n,n)-M %*% solve(t(M) %*% M) %*% t(M)) %*% z
 
 # run 6 fold cross validation on the stations, 12 is an even multiple of 6
 krig.reml.cv <- rep(NA,n)
+reml.matern.mle.cv <- rep(NA,6)
+reml.matern.par.cv <- matrix(rep(NA,6*7),ncol=7)
 for (i in 1:6){
 mask <- seq(from = i, to = n, by=6)
 final.cv <- final[-mask,]
@@ -534,8 +536,10 @@ fit=nlm(reml, c(2.34,-.630,1.119,10,1.935,3.53,.889), print.level=1, stepmax=5)
 #make sure to run this sequentially par is defined above as well. 
 #I will try to clean code soon
 reml.matern.par <- fit$estimate
+reml.matern.mle.cv[i] <- fit$minimum
 reml.matern.par[c(1,2,3,4,6,7)] <- exp(reml.matern.par[c(1,2,3,5,6,7)])
 reml.matern.par[4] <- 5*exp(reml.matern.par[4])/(1+exp(reml.matern.par[4]))
+reml.matern.par.cv[i,] <- reml.matern.par
 
 D.cv = sqrt((D1.cv/reml.matern.par[2])^2+(D2.cv/reml.matern.par[3])^2)
 
@@ -552,7 +556,7 @@ reg.beta= solve(t(M.cv) %*% solve(K) %*% M.cv) %*%
 mu=reg.beta[1]+reg.beta[2]*final[-mask,'lat'] +reg.beta[3]*final[-mask,'lon']
 D3 = sqrt((D1/reml.matern.par[2])^2+(D2/reml.matern.par[3])^2)
 D3=D3[-mask, mask]
-k=alpha*Matern(D3, smoothness=reml.matern.par[4])
+k=reml.matern.par[1]*Matern(D3, smoothness=reml.matern.par[4])
 weight=solve(K) %*% k 
 e1=final[-mask,'PM10']-mu
 krig=t(weight) %*% e1
@@ -560,9 +564,13 @@ mu.new=reg.beta[1]+reg.beta[2]*final[mask,'lat'] +reg.beta[3]*final[mask,'lon']
 krig.reml.cv[mask]=krig + mu.new
 }
 krig.reml.cv
+reml.matern.mle.cv
+reml.matern.par.cv
 
 ### Exponential Spatial Distance Model ###
 krig.reml2.cv <- rep(NA,n)
+reml.exp.par.cv <- matrix(rep(NA,6*6),ncol=6)
+reml.exp.mle.cv <- rep(NA,6)
 for (i in 1:6){
   #i=1
   mask <- seq(from = i, to = n, by=6)
@@ -609,6 +617,8 @@ fit.exp=nlm(reml.exp, c(2.34,-.630,1.119,1.935,3.53,.889), print.level=1, stepma
 reml.exp.par <- fit.exp$estimate
 reml.exp.par[c(1,2,3,4,5,6)] <- exp(reml.exp.par[c(1,2,3,4,5,6)])
 #reml.exp.par[4] <- 5*exp(reml.exp.par[4])/(1+exp(reml.exp.par[4]))
+reml.exp.par.cv[i,] <- reml.exp.par
+reml.exp.mle.cv[i] <- fit.exp$minimum
 
 D.cv = sqrt((D1.cv/reml.exp.par[2])^2+(D2.cv/reml.exp.par[3])^2)
 
@@ -625,7 +635,7 @@ reg.beta= solve(t(M.cv) %*% solve(K) %*% M.cv) %*%
 mu=reg.beta[1]+reg.beta[2]*final[-mask,'lat'] +reg.beta[3]*final[-mask,'lon']
 D3 = sqrt((D1/reml.matern.par[2])^2+(D2/reml.matern.par[3])^2)
 D3=D3[-mask, mask]
-k=alpha*Matern(D3, smoothness=reml.matern.par[4])
+k=reml.matern.par[1]*Matern(D3, smoothness=reml.matern.par[4])
 weight=solve(K) %*% k 
 e1=final[-mask,'PM10']-mu
 krig=t(weight) %*% e1
@@ -639,12 +649,18 @@ colMeans(fit.ols1.pars.cv)
 colMeans(fit.ols2.pars.cv)
 colMeans(iso.par.cv)
 colMeans(sp.par.cv)
+colMeans(reml.matern.par.cv)
+colMeans(reml.exp.par.cv)
 
 ##### Likelihood and SSE Comparisons #####
 mean(SSE.ols1.cv)
 mean(SSE.ols2.cv)
 mean(mle.cv)
 mean(mle.sp.cv)
+mean(reml.matern.mle.cv)
+mean(reml.exp.mle.cv)
+
+### Compare via AIC ###
 
 ##### kriging results comparison  #####
 
