@@ -181,6 +181,22 @@ plot(temp)
 boxplotVGram(temp)
 
 #Isotropic Matern
+#LOOCV requires a nested loop
+
+
+D <- rdist.earth(madrid_air_01[!is.na(madrid_air_01$PM10),c('lat','lon')], miles=FALSE)
+n <- nrow(D)
+mle.cv <- rep(NA,n)
+aic.cv <- rep(NA,n)
+krig.cv <- rep(NA,n)
+
+#i <- 1
+for (i in 1:nrow(D)){
+lat.cv <- lat[-i]
+lon.cv <- lon[-i]
+PM10.cv <- PM10[-i]
+D.cv <- rdist.earth(cbind(lat.cv,lon.cv),miles=FALSE)
+
 par=c( 2,2.3,0,-3304.78, 85.10, 30.45)
 mle.1=function(par){
   
@@ -194,41 +210,51 @@ mle.1=function(par){
   b1=par[6]
   b2=par[7]
   
-  S=alpha*Matern(D, smoothness=nu, range=beta)
+  S=alpha*Matern(D.cv, smoothness=nu, range=beta)
   #diag(S)= diag(S)+ nug
   
-  mu=b0+b1*lat +b2*lon
+  mu=b0+b1*lat.cv +b2*lon.cv
   
-  temp=(determinant(S, logarithm=T)$modulus + t(PM10-mu) %*% chol2inv(chol(S)) %*% (PM10-mu))/2
+  temp=(determinant(S, logarithm=T)$modulus 
+        + t(PM10.cv-mu) %*% chol2inv(chol(S)) %*% (PM10.cv-mu))/2
   return(temp)
 }
-
-
 ini=c( 3,2.3,17,0,-3304.78, 85.10, 30.45)
-
-fit.mle1=nlm(mle.1, ini,print.level=2,stepmax=2, iterlim=10000)
+fit.mle1=nlm(mle.1, ini,print.level=1,stepmax=2, iterlim=10000)
 
 #parameter estimates
 back.mle2 <- function(par){
   alpha=exp(par[1])
   beta=exp(par[2])
   nu=3*exp(par[3])/(1+exp(par[3]))
-  #nug=exp(par[4])
+  nug=exp(par[4])
   b0=par[5]
   b1=par[6]
   b2=par[7]
-  p_list <- c(alpha, beta, nu, b0, b1, b2)
-  return(p_list)1
+  p_list <- c(alpha, beta, nu,nug, b0, b1, b2)
+  return(p_list)
 }
 iso.par <- back.mle2(fit.mle1$estimate)
 names(iso.par) <- c('alpha','beta','nu','nugget','b0','b1','b2')
 print(iso.par)
 
 #MLE
-(iso.mle <- -1/2*log(2*pi) + fit.mle1$minimum)
+(mle.cv[i] <- -1/2*log(2*pi) + fit.mle1$minimum)
 
 #AIC 
-(iso.AIC <- AIC(iso.mle,7))
+(aic.cv[i]  <- AIC(mle.cv[i],7))
+
+#Kriging estimates
+K=iso.par[1]*Matern(D.cv, smoothness=iso.par[3], range=iso.par[2])
+mu=iso.par[5]+iso.par[6]*lat[i] +iso.par[7]*lon[i]
+D2=D[-i, i]
+k=iso.par[1]*Matern(D2, smoothness=iso.par[3], range=iso.par[2])
+weight=solve(K) %*% k 
+e1=PM10[-i]-mu
+krig=t(weight) %*% e1
+krig.cv[i]=krig + mu
+}
+krig.cv
 
 # run with REML instead?
 
