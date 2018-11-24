@@ -179,6 +179,130 @@ D <- rdist.earth(madrid_air_01[!is.na(madrid_air_01$PM10),c('lat','lon')], miles
 temp <- vgram(D,m1$residuals,N=10,dmax=20) 
 plot(temp)
 boxplotVGram(temp)
+temp$centers
+
+###OLS - Exponential covariance function###
+###George OLS
+lat <- madrid_air_01[!is.na(madrid_air_01$PM10),'lat']
+lon <- madrid_air_01[!is.na(madrid_air_01$PM10),'lon']
+PM10 <- madrid_air_01[!is.na(madrid_air_01$PM10),'PM10']
+loc0 <- madrid_air_01[,c('lon','lat')]
+n <- nrow(D)
+SSE.ols1.cv <- rep(NA,n)
+krig.ols1.cv <- rep(NA,n)
+fit.ols1.pars.cv <- matrix(rep(NA,n*3),ncol=3)
+#cross-validated
+for (i in 1:n){
+#i=12
+lat.cv <- lat[-i]
+lon.cv <- lon[-i]
+PM10.cv <- PM10[-i]
+D.cv=rdist.earth(cbind(lat.cv,lon.cv),miles=F)
+
+myreg<-lm(PM10.cv~lat.cv+lon.cv)
+residuals<-myreg$resid
+
+temp=vgram(D.cv,residuals,N=7)
+d=temp$centers
+semi.variogram=temp$stats[2,]
+
+ols1=function(par){
+  
+  alpha=exp(par[1])
+  beta=exp(par[2])
+  delta=exp(par[3])
+  
+  S<-alpha*(1-exp(-d/beta))
+  S<-S+delta
+  SSE=sum((semi.variogram-S)^2)
+  
+  return(SSE)
+  
+}
+
+fit.ols1=nlm(ols1,c(2.812042,1.184425,0), print.level=1, stepmax=2, iterlim=10000)
+
+SSE.ols1.cv[i] <- fit.ols1$minimum
+fit.ols1.pars <- exp(fit.ols1$estimate)
+fit.ols1.pars.cv[i,] <- fit.ols1.pars
+betas <- coef(myreg)
+
+K=fit.ols1.pars[1]*exp(-D.cv/fit.ols1.pars[2])
+diag(K) <- diag(K) +fit.ols1.pars[3]
+mu=betas[1]+betas[2]*lat[i] +betas[3]*lon[i]
+D2=D[-i, i]
+k=fit.ols1.pars[1]*exp(-D2/fit.ols1.pars[2])
+weight=solve(K) %*% k 
+e1=PM10[-i]-mu
+krig=t(weight) %*% e1
+krig.ols1.cv[i]=krig + mu
+}
+krig.ols1.cv
+fit.ols1.pars.cv
+SSE.ols1.cv
+
+
+
+### George OLS with Matern ###
+######OLS - Matern covariance function######
+#cross-validated
+SSE.ols2.cv <- rep(NA,n)
+krig.ols2.cv <- rep(NA,n)
+fit.ols2.pars.cv <- matrix(rep(NA,n*4),ncol=4)
+for (i in 1:n){
+  #i=12
+  lat.cv <- lat[-i]
+  lon.cv <- lon[-i]
+  PM10.cv <- PM10[-i]
+  D.cv=rdist.earth(cbind(lat.cv,lon.cv),miles=F)
+  
+  myreg<-lm(PM10.cv~lat.cv+lon.cv)
+  residuals<-myreg$resid
+  
+  temp=vgram(D.cv,residuals,N=7)
+  d=temp$centers
+  semi.variogram=temp$stats[2,]
+ols2=function(par){ 
+  
+  alpha=exp(par[1])
+  
+  beta=exp(par[2])
+  
+  nu=5*exp(par[3])/(1+exp(par[3]))
+  
+  delta=exp(par[4])
+  
+  S <- alpha*Matern(d, smoothness=nu, range=beta)
+  
+  S <- S + delta
+  
+  SSE=sum((semi.variogram-S)^2)
+  
+  return(SSE)
+  
+}
+
+fit.ols2=nlm(ols2, c(2, 2.303,  0.4857, -3),print.level=2,stepmax = 2,iterlim=10000)
+SSE.ols2.cv[i] <- fit.ols2$minimum
+fit.ols2.pars <- fit.ols2$estimate
+fit.ols2.pars[c(1,2,4)] <- exp(fit.ols2$estimate[c(1,2,4)])
+fit.ols2.pars[3] <- 5*exp(fit.ols2.pars[3])/(1+exp(fit.ols2.pars[3])) 
+fit.ols2.pars.cv[i,] <- fit.ols2.pars
+betas <- coef(myreg)
+
+K=fit.ols2.pars[1]*exp(-D.cv/fit.ols2.pars[2])
+diag(K) <- diag(K) +fit.ols1.pars[3]
+mu=betas[1]+betas[2]*lat[i] +betas[3]*lon[i]
+D2=D[-i, i]
+k=fit.ols1.pars[1]*exp(-D2/fit.ols2.pars[2])
+weight=solve(K) %*% k 
+e1=PM10[-i]-mu
+krig=t(weight) %*% e1
+krig.ols2.cv[i]=krig + mu
+}
+krig.ols2.cv
+fit.ols2.pars.cv
+SSE.ols2.cv
 
 #Isotropic Matern
 #LOOCV requires a nested loop
@@ -187,7 +311,7 @@ n <- nrow(D)
 mle.cv <- rep(NA,n)
 aic.cv <- rep(NA,n)
 krig.cv <- rep(NA,n)
-
+iso.par.cv <- matrix(rep(NA,n*7),ncol=7)
 #i <- 1
 for (i in 1:nrow(D)){
 lat.cv <- lat[-i]
@@ -235,6 +359,7 @@ back.mle2 <- function(par){
 iso.par <- back.mle2(fit.mle1$estimate)
 names(iso.par) <- c('alpha','beta','nu','nugget','b0','b1','b2')
 print(iso.par)
+iso.par.cv[i,] <- iso.par
 
 #MLE
 (mle.cv[i] <- -1/2*log(2*pi) + fit.mle1$minimum)
@@ -253,6 +378,9 @@ krig=t(weight) %*% e1
 krig.cv[i]=krig + mu
 }
 krig.cv
+iso.par.cv
+mle.cv
+aic.cv
 
 # run with REML instead?
 D <- rdist.earth(madrid_air_01[!is.na(madrid_air_01$PM10),c('lat','lon')], miles=FALSE)
@@ -260,6 +388,7 @@ n <- nrow(D)
 mle.sp.cv <- rep(NA,n)
 aic.sp.cv <- rep(NA,n)
 krig.sp.cv <- rep(NA,n)
+sp.par.cv <- matrix(rep(NA,n*8),ncol=8)
 for (i in 1:n){
   lat.cv <- lat[-i]
   lon.cv <- lon[-i]
@@ -307,8 +436,10 @@ back.mle2 <- function(par){
   return(p_list)
 }
 spatio.par <- back.mle2(fit.mle3$estimate)
-names(spatio.par) <- c('alpha','beta','nu','b0','b1','b2', 'spatial var')
-print(spatio.par)
+#names(spatio.par) <- c('alpha','beta','nu','b0','b1','b2', 'spatial var')
+#print(spatio.par)
+print(i)
+sp.par.cv[i,] <- spatio.par
 
 #MLE
 (mle.sp.cv[i] <- -1/2*log(2*pi) + fit.mle3$minimum)
@@ -318,14 +449,14 @@ print(spatio.par)
 
 ## spatially varying variance
 par <- spatio.par
-alpha=alpha + exp(par[8]) * lon[-i]
+alpha=par[1] + exp(par[8]) * lon[-i]
 alpha= matrix(alpha, ncol=1) %*% matrix(alpha, nrow=1)
 K=alpha*Matern(D.cv, smoothness=par[3], range=par[2])
 diag(K) <- diag(K) + par[4]
 mu=par[5]+par[6]*lat[i] +par[7]*lon[i]
 D2=D[-i, i]
-alpha1=exp(par[1])+exp(par[8]) * lon[-i]
-alpha2=exp(par[1])+ exp(par[8]) * lon[i]
+alpha1=par[1]+par[8] * lon[-i]
+alpha2=par[1]+ par[8] * lon[i]
 alpha= matrix(alpha1, ncol=1) %*% matrix(alpha2, nrow=1)
 k=alpha*Matern(D2, smoothness=par[3], range=par[2])
 weight=solve(K) %*% k 
@@ -334,12 +465,14 @@ krig=t(weight) %*% e1
 krig.sp.cv[i]=krig + mu
 }
 krig.sp.cv
+sp.par.cv
 
 ### Space-Time Model
 ### Do k-fold cross validation in this case
 ### Switch to REML because MLE is having trouble with this data
 # Matern 
 final <- madrid_air[!is.na(madrid_air$PM10),c('lat','lon','PM10','date')]
+
 x = final$lon
 y = final$lat
 #sp <- unique(final[,c('lat','lon')])
@@ -353,6 +486,20 @@ n <- nrow(final)
 M= cbind(rep(1,n), x, y)
 y1=(diag(1, n,n)-M %*% solve(t(M) %*% M) %*% t(M)) %*% z
 
+# run 6 fold cross validation on the stations, 12 is an even multiple of 6
+krig.reml.cv <- rep(NA,n)
+for (i in 1:6){
+mask <- seq(from = i, to = n, by=6)
+final.cv <- final[-mask,]
+x.cv <- final.cv$lon
+y.cv <- final.cv$lat
+D1.cv = rdist.earth(cbind(x.cv,y.cv),miles=F)
+D2.cv = rdist(final.cv$date)
+z.cv = as.matrix(final.cv$PM10,ncol=1)
+n.cv <- nrow(final.cv)
+M.cv = cbind(rep(1,n.cv), x.cv, y.cv)
+y1.cv=(diag(1, n.cv,n.cv)-M.cv %*% solve(t(M.cv) %*% M.cv) %*% t(M.cv)) %*% z.cv
+#par <- c(2.34,-.630,1.119,10,1.935,3.53,.889)
 reml=function(par){
   
   alpha = exp(par[1])
@@ -364,50 +511,71 @@ reml=function(par){
   nugget_t = exp(par[6])
   nugget_s = exp(par[7])
   
-  D = sqrt((D1/beta1)^2+(D2/beta2)^2)
+  D = sqrt((D1.cv/beta1)^2+(D2.cv/beta2)^2)
   
   S = alpha*Matern(D, smoothness=nu)
   diag(S)=diag(S)+nugget_st
-  S[which(D2 == 0)]<-S[which(D2 == 0)]+nugget_t
-  S[which(D1 == 0)]<-S[which(D1 == 0)]+nugget_s
+  S[which(D2.cv == 0)]<-S[which(D2.cv == 0)]+nugget_t
+  S[which(D1.cv == 0)]<-S[which(D1.cv == 0)]+nugget_s
   
   temp1=determinant(S, logarithm=T)$modulus
   S_inv <- chol2inv(chol(S))
-  temp2=determinant((t(M) %*% S_inv %*% M), logarithm=T)$modulus
+  temp2=determinant((t(M.cv) %*% S_inv %*% M.cv), logarithm=T)$modulus
   
-  temp3= t(y1) %*% (S_inv - S_inv %*% M %*% 
-                      solve( t(M) %*% S_inv %*% M) 
-                    %*% t(M) %*% S_inv) %*% y1
+  temp3= t(y1.cv) %*% (S_inv - S_inv %*% M.cv %*% 
+                      solve( t(M.cv) %*% S_inv %*% M.cv) 
+                    %*% t(M.cv) %*% S_inv) %*% y1.cv
   
   temp=temp1+temp2+temp3
   return(temp)
 }
 
-fit=nlm(reml, c(2.34,-.630,1.119,10,1.935,3.53,.889), print.level=2, stepmax=5)
+fit=nlm(reml, c(2.34,-.630,1.119,10,1.935,3.53,.889), print.level=1, stepmax=5)
 #make sure to run this sequentially par is defined above as well. 
 #I will try to clean code soon
-par <- fit$estimate
-alpha = exp(par[1])
-beta1 = exp(par[2])
-beta2 = exp(par[3])
-nu = 5*exp(par[4])/(1+exp(par[4]))
+reml.matern.par <- fit$estimate
+reml.matern.par[c(1,2,3,4,6,7)] <- exp(reml.matern.par[c(1,2,3,5,6,7)])
+reml.matern.par[4] <- 5*exp(reml.matern.par[4])/(1+exp(reml.matern.par[4]))
 
-nugget_st = exp(par[5])
-nugget_t = exp(par[6])
-nugget_s = exp(par[7])
+D.cv = sqrt((D1.cv/reml.matern.par[2])^2+(D2.cv/reml.matern.par[3])^2)
 
-D = sqrt((D1/beta1)^2+(D2/beta2)^2)
+K = reml.matern.par[1]*Matern(D.cv, smoothness=reml.matern.par[4])
+diag(K)=diag(K)+reml.matern.par[5]
+K[which(D2.cv == 0)]<-K[which(D2.cv == 0)]+reml.matern.par[6]
+K[which(D1.cv == 0)]<-K[which(D1.cv == 0)]+reml.matern.par[7]
 
-K = alpha*Matern(D, smoothness=nu)
-diag(K)=diag(K)+nugget_st
-K[which(D2 == 0)]<-K[which(D2 == 0)]+nugget_t
-K[which(D1 == 0)]<-K[which(D1 == 0)]+nugget_s
+reg.beta= solve(t(M.cv) %*% solve(K) %*% M.cv) %*% 
+  t(M.cv) %*% solve(K) %*% z.cv
 
-K=exp(-D/beta)*alpha
+### Run the Kriging
 
-reg.beta= solve(t(M) %*% solve(K) %*% M) %*% 
-  t(M) %*% solve(K) %*% z
+mu=reg.beta[1]+reg.beta[2]*final[-mask,'lat'] +reg.beta[3]*final[-mask,'lon']
+D3 = sqrt((D1/reml.matern.par[2])^2+(D2/reml.matern.par[3])^2)
+D3=D3[-mask, mask]
+k=alpha*Matern(D3, smoothness=reml.matern.par[4])
+weight=solve(K) %*% k 
+e1=final[-mask,'PM10']-mu
+krig=t(weight) %*% e1
+mu.new=reg.beta[1]+reg.beta[2]*final[mask,'lat'] +reg.beta[3]*final[mask,'lon']
+krig.reml.cv[mask]=krig + mu.new
+}
+krig.reml.cv
 
+### Exponential Spatial Distance Model ###
+krig.reml2.cv <- rep(NA,n)
+for (i in 1:6){
+  #i=1
+  mask <- seq(from = i, to = n, by=6)
+  final.cv <- final[-mask,]
+  x.cv <- final.cv$lon
+  y.cv <- final.cv$lat
+  D1.cv = rdist.earth(cbind(x.cv,y.cv),miles=F)
+  D2.cv = rdist(final.cv$date)
+  z.cv = as.matrix(final.cv$PM10,ncol=1)
+  n.cv <- nrow(final.cv)
+  M.cv = cbind(rep(1,n.cv), x.cv, y.cv)
+  y1.cv=(diag(1, n.cv,n.cv)-M.cv %*% solve(t(M.cv) %*% M.cv) %*% t(M.cv)) %*% z.cv
+#par <- c(2.34,-.630,1.119,1.935,3.53,.889)
 reml.exp=function(par){
   alpha = exp(par[1])
   beta1 = exp(par[2])
@@ -416,54 +584,102 @@ reml.exp=function(par){
   nugget_t = exp(par[5])
   nugget_s = exp(par[6])
   
-  D = sqrt((D1/beta1)^2+(D2/beta2)^2)
+  D = sqrt((D1.cv/beta1)^2+(D2.cv/beta2)^2)
   
   S = alpha*exp(-D)
   diag(S)=diag(S)+nugget_st
-  S[which(D2 == 0)]<-S[which(D2 == 0)]+nugget_t
-  S[which(D1 == 0)]<-S[which(D1 == 0)]+nugget_s
+  S[which(D2.cv == 0)]<-S[which(D2.cv == 0)]+nugget_t
+  S[which(D1.cv == 0)]<-S[which(D1.cv == 0)]+nugget_s
   
   temp1=determinant(S, logarithm=T)$modulus
   S_inv <- chol2inv(chol(S))
-  temp2=determinant((t(M) %*% S_inv %*% M), logarithm=T)$modulus
+  temp2=determinant((t(M.cv) %*% S_inv %*% M.cv), logarithm=T)$modulus
   
-  temp3= t(y1) %*% (S_inv - S_inv %*% M %*% 
-                      solve( t(M) %*% S_inv %*% M) 
-                    %*% t(M) %*% S_inv) %*% y1
+  temp3= t(y1.cv) %*% (S_inv - S_inv %*% M.cv %*% 
+                      solve( t(M.cv) %*% S_inv %*% M.cv) 
+                    %*% t(M.cv) %*% S_inv) %*% y1.cv
   
   temp=temp1+temp2+temp3
   return(temp)
 }
 
-fit.exp=nlm(reml.exp, c(2.34,-.630,1.119,1.935,3.53,.889), print.level=2, stepmax=2)
+fit.exp=nlm(reml.exp, c(2.34,-.630,1.119,1.935,3.53,.889), print.level=1, stepmax=2)
 #make sure to run this sequentially par is defined above as well. 
 #I will try to clean code soon
-par <- fit.exp$estimate
-alpha = exp(par[1])
-beta1 = exp(par[2])
-beta2 = exp(par[3])
-nugget_st = exp(par[4])
-nugget_t = exp(par[5])
-nugget_s = exp(par[6])
+reml.exp.par <- fit.exp$estimate
+reml.exp.par[c(1,2,3,4,5,6)] <- exp(reml.exp.par[c(1,2,3,4,5,6)])
+#reml.exp.par[4] <- 5*exp(reml.exp.par[4])/(1+exp(reml.exp.par[4]))
 
-D = sqrt((D1/beta1)^2+(D2/beta2)^2)
+D.cv = sqrt((D1.cv/reml.exp.par[2])^2+(D2.cv/reml.exp.par[3])^2)
 
-K = alpha*exp(-D)
-diag(K)=diag(K)+nugget_st
-K[which(D2 == 0)]<-K[which(D2 == 0)]+nugget_t
-K[which(D1 == 0)]<-K[which(D1 == 0)]+nugget_s
+K = reml.exp.par[1]*exp(-D.cv)
+diag(K)=diag(K)+reml.exp.par[4]
+K[which(D2.cv == 0)]<-K[which(D2.cv == 0)]+reml.exp.par[5]
+K[which(D1.cv == 0)]<-K[which(D1.cv == 0)]+reml.exp.par[6]
 
-reg.beta.exp= solve(t(M) %*% solve(K) %*% M) %*% 
-  t(M) %*% solve(K) %*% z
+reg.beta= solve(t(M.cv) %*% solve(K) %*% M.cv) %*% 
+  t(M.cv) %*% solve(K) %*% z.cv
 
+### Run the Kriging
+
+mu=reg.beta[1]+reg.beta[2]*final[-mask,'lat'] +reg.beta[3]*final[-mask,'lon']
+D3 = sqrt((D1/reml.matern.par[2])^2+(D2/reml.matern.par[3])^2)
+D3=D3[-mask, mask]
+k=alpha*Matern(D3, smoothness=reml.matern.par[4])
+weight=solve(K) %*% k 
+e1=final[-mask,'PM10']-mu
+krig=t(weight) %*% e1
+mu.new=reg.beta[1]+reg.beta[2]*final[mask,'lat'] +reg.beta[3]*final[mask,'lon']
+krig.reml2.cv[mask]=krig + mu.new
+}
+krig.reml2.cv
+
+##### Fitted Parameter Value Comparison #####
+colMeans(fit.ols1.pars.cv)
+colMeans(fit.ols2.pars.cv)
+colMeans(iso.par.cv)
+colMeans(sp.par.cv)
+
+##### Likelihood and SSE Comparisons #####
+mean(SSE.ols1.cv)
+mean(SSE.ols2.cv)
+mean(mle.cv)
+mean(mle.sp.cv)
 
 ##### kriging results comparison  #####
+
+MSPE.ols1=mean((PM10-krig.ols1.cv)^2)
+MAE.ols1=mean(abs(PM10-krig.ols1.cv))
+
+MSPE.ols2=mean((PM10-krig.ols2.cv)^2)
+MAE.ols2=mean(abs(PM10-krig.ols2.cv))
 
 MSPE.mle1=mean((PM10-krig.cv)^2)
 MAE.mle1=mean(abs(PM10-krig.cv))
 
 MSPE.mle2=mean((PM10-krig.sp.cv)^2)
 MAE.mle2=mean(abs(PM10-krig.sp.cv))
+
+#Kriging from the time series model on June 01
+mask2 <- which(final$date == '2015-06-01')
+k_vals <- krig.reml.cv[mask2]
+k_vals2 <- krig.reml2.cv[mask2]
+
+#just on june 01
+MSPE.reml1=mean((PM10-k_vals)^2)
+MAE.reml1=mean(abs(PM10-k_vals))
+
+MSPE.reml2=mean((PM10-k_vals2)^2)
+MAE.reml2=mean(abs(PM10-k_vals2))
+
+#all_dates
+MSPE.reml1.all=mean((final$PM10-krig.reml.cv)^2)
+MAE.reml1.all=mean(abs(final$PM10-krig.reml.cv))
+
+MSPE.reml2.all=mean((final$PM10-krig.reml2.cv)^2)
+MAE.reml2.all=mean(abs(final$PM10-krig.reml2.cv))
+
+## Very bad Kriging results from running REML
 
 ### Plot kriging result comparisons ###
 
