@@ -165,7 +165,7 @@ PM10 <- madrid_air_01[!is.na(madrid_air_01$PM10),'PM10']
 loc0 <- madrid_air_01[,c('lon','lat')]
 
 #quilt plot
-quilt.plot(madrid_air_01[,c('lat')],madrid_air_01[,c('lon')],madrid_air_01[,c('PM10')])
+quilt.plot(madrid_air_01[,c('lon')],madrid_air_01[,c('lat')],madrid_air_01[,c('PM10')])
 
 #variogram
 m1 <- lm(PM10 ~ lat + lon, data=madrid_air_01)
@@ -182,8 +182,6 @@ boxplotVGram(temp)
 
 #Isotropic Matern
 #LOOCV requires a nested loop
-
-
 D <- rdist.earth(madrid_air_01[!is.na(madrid_air_01$PM10),c('lat','lon')], miles=FALSE)
 n <- nrow(D)
 mle.cv <- rep(NA,n)
@@ -257,45 +255,55 @@ krig.cv[i]=krig + mu
 krig.cv
 
 # run with REML instead?
-
+D <- rdist.earth(madrid_air_01[!is.na(madrid_air_01$PM10),c('lat','lon')], miles=FALSE)
+n <- nrow(D)
+mle.sp.cv <- rep(NA,n)
+aic.sp.cv <- rep(NA,n)
+krig.sp.cv <- rep(NA,n)
+for (i in 1:n){
+  lat.cv <- lat[-i]
+  lon.cv <- lon[-i]
+  PM10.cv <- PM10[-i]
 #spatially varying model
+
 mle3=function(par){ 
   
   alpha=exp(par[1])
   beta=exp(par[2])
   nu=3*exp(par[3])/(1+exp(par[3]))
-  #nug=par[4]
+  nug=par[4]
   
-  b0=par[4]
-  b1=par[5]
-  b2=par[6]
+  b0=par[5]
+  b1=par[6]
+  b2=par[7]
   
   #vary over longitude
-  alpha=alpha + exp(par[7]) * lon
+  alpha=alpha + exp(par[8]) * lon.cv
   alpha= matrix(alpha, ncol=1) %*% matrix(alpha, nrow=1)
   
-  S=alpha*Matern(D, smoothness=nu, range=beta) #+ nug
+  S=alpha*Matern(D.cv, smoothness=nu, range=beta)
+  diag(S)=diag(S)+nug
   
-  mu=b0+b1*lat + b2*lon
+  mu=b0+b1*lat.cv + b2*lon.cv
   
-  temp=(determinant(S, logarithm=T)$modulus + t(PM10-mu) %*% chol2inv(chol(S)) %*% (PM10-mu))/2
+  temp=(determinant(S, logarithm=T)$modulus + t(PM10.cv-mu) %*% chol2inv(chol(S)) %*% (PM10.cv-mu))/2
   return(temp)
 }
 
-ini=c( 1.694,2.3,17,-3304,85,30,0)
-#removed nugget because the covariance matrix was not positive definite
-fit.mle3=nlm(mle3, ini,print.level=2,iterlim=10000,stepmax=2)
+ini=c( 1.694,2.3,17,0,-3304,85,30,0)
+fit.mle3=nlm(mle3, ini,print.level=1,iterlim=10000,stepmax=2)
 
 #parameter estimates
 back.mle2 <- function(par){
   alpha=exp(par[1])
   beta=exp(par[2])
   nu=3*exp(par[3])/(1+exp(par[3]))
-  b0=par[4]
-  b1=par[5]
-  b2=par[6]
-  var=exp(par[7])
-  p_list <- c(alpha, beta, nu, b0, b1, b2, var)
+  nug=exp(par[4])
+  b0=par[5]
+  b1=par[6]
+  b2=par[7]
+  var=exp(par[8])
+  p_list <- c(alpha, beta, nu, nug, b0, b1, b2, var)
   return(p_list)
 }
 spatio.par <- back.mle2(fit.mle3$estimate)
@@ -303,49 +311,33 @@ names(spatio.par) <- c('alpha','beta','nu','b0','b1','b2', 'spatial var')
 print(spatio.par)
 
 #MLE
-(spatio.mle <- -1/2*log(2*pi) + fit.mle3$minimum)
+(mle.sp.cv[i] <- -1/2*log(2*pi) + fit.mle3$minimum)
 
 #AIC 
-(spatio.AIC <- AIC(spatio.mle,7))
+(aic.sp.cv[i] <- AIC(mle.sp.cv[i],7))
 
 ## spatially varying variance
-
-par=fit.mle3$estimate
-
-alpha=exp(par[1])
-beta=exp(par[2])
-nu=5*exp(par[3])/(1+exp(par[3]))
-
-b0=par[4]
-
-alpha=alpha + exp(par[5]) * loc0[,1]
+par <- spatio.par
+alpha=alpha + exp(par[8]) * lon[-i]
 alpha= matrix(alpha, ncol=1) %*% matrix(alpha, nrow=1)
-
-K=alpha*Matern(D0, smoothness=nu, range=beta)
-
-mu=b0
-
-D2=D[1:100, 101:130]
-
-alpha1=exp(par[1])+exp(par[5]) * loc0[,1]
-alpha2=exp(par[1])+ exp(par[5]) * loc[101:130,1]
+K=alpha*Matern(D.cv, smoothness=par[3], range=par[2])
+diag(K) <- diag(K) + par[4]
+mu=par[5]+par[6]*lat[i] +par[7]*lon[i]
+D2=D[-i, i]
+alpha1=exp(par[1])+exp(par[8]) * lon[-i]
+alpha2=exp(par[1])+ exp(par[8]) * lon[i]
 alpha= matrix(alpha1, ncol=1) %*% matrix(alpha2, nrow=1)
-
-k=alpha*Matern(D2, smoothness=nu, range=beta)
-
+k=alpha*Matern(D2, smoothness=par[3], range=par[2])
 weight=solve(K) %*% k 
-
-
-e1=z0-(b0)
-
+e1=PM10[-i]-mu
 krig=t(weight) %*% e1
-
-krig.mle3=krig +(b0)
-
-cbind(krig.mle1,krig.mle2,krig.mle3)
+krig.sp.cv[i]=krig + mu
+}
+krig.sp.cv
 
 ### Space-Time Model
-
+### Do k-fold cross validation in this case
+### Switch to REML because MLE is having trouble with this data
 # Matern 
 final <- madrid_air[!is.na(madrid_air$PM10),c('lat','lon','PM10','date')]
 x = final$lon
@@ -356,18 +348,21 @@ D1 = rdist.earth(cbind(x,y), miles = F)
 D2 = rdist(final$date)
 z = as.matrix(final$PM10,ncol=1)
 par = c(1.694,2.3,1,-.5,-3000,80,30,0,0,0)
-lik1 = function(par){
+
+n <- nrow(final)
+M= cbind(rep(1,n), x, y)
+y1=(diag(1, n,n)-M %*% solve(t(M) %*% M) %*% t(M)) %*% z
+
+reml=function(par){
+  
   alpha = exp(par[1])
   beta1 = exp(par[2])
   beta2 = exp(par[3])
   nu = 5*exp(par[4])/(1+exp(par[4]))
-  
-  b0 = par[5]
-  b1 = par[6]
-  b2 = par[7]
-  nugget_st = exp(par[8])
-  nugget_t = exp(par[9])
-  nugget_s = exp(par[10])
+
+  nugget_st = exp(par[5])
+  nugget_t = exp(par[6])
+  nugget_s = exp(par[7])
   
   D = sqrt((D1/beta1)^2+(D2/beta2)^2)
   
@@ -375,27 +370,51 @@ lik1 = function(par){
   diag(S)=diag(S)+nugget_st
   S[which(D2 == 0)]<-S[which(D2 == 0)]+nugget_t
   S[which(D1 == 0)]<-S[which(D1 == 0)]+nugget_s
-  mu = b0 + b1*x+b2*y
   
-  temp=(determinant(S, logarithm=T)$modulus + t(z-mu) %*% chol2inv(chol(S)) %*% (z-mu))/2
-  return(temp) 
+  temp1=determinant(S, logarithm=T)$modulus
+  S_inv <- chol2inv(chol(S))
+  temp2=determinant((t(M) %*% S_inv %*% M), logarithm=T)$modulus
+  
+  temp3= t(y1) %*% (S_inv - S_inv %*% M %*% 
+                      solve( t(M) %*% S_inv %*% M) 
+                    %*% t(M) %*% S_inv) %*% y1
+  
+  temp=temp1+temp2+temp3
+  return(temp)
 }
 
-#ini=c( 1.694,2.3,17,-3304,85,30,0)
-ini = c(0,2.3,1,-.5,-3000,80,30,0,0,0)
-fit1=nlm(lik1, ini,print.level=2,stepmax=2, iterlim=10000)
+fit=nlm(reml, c(2.34,-.630,1.119,10,1.935,3.53,.889), print.level=2, stepmax=5)
+#make sure to run this sequentially par is defined above as well. 
+#I will try to clean code soon
+par <- fit$estimate
+alpha = exp(par[1])
+beta1 = exp(par[2])
+beta2 = exp(par[3])
+nu = 5*exp(par[4])/(1+exp(par[4]))
 
-lik2 = function(par){
+nugget_st = exp(par[5])
+nugget_t = exp(par[6])
+nugget_s = exp(par[7])
+
+D = sqrt((D1/beta1)^2+(D2/beta2)^2)
+
+K = alpha*Matern(D, smoothness=nu)
+diag(K)=diag(K)+nugget_st
+K[which(D2 == 0)]<-K[which(D2 == 0)]+nugget_t
+K[which(D1 == 0)]<-K[which(D1 == 0)]+nugget_s
+
+K=exp(-D/beta)*alpha
+
+reg.beta= solve(t(M) %*% solve(K) %*% M) %*% 
+  t(M) %*% solve(K) %*% z
+
+reml.exp=function(par){
   alpha = exp(par[1])
   beta1 = exp(par[2])
   beta2 = exp(par[3])
-  
-  b0 = par[4]
-  b1 = par[5]
-  b2 = par[6]
-  nugget_st = exp(par[7])
-  nugget_t = exp(par[8])
-  nugget_s = exp(par[9])
+  nugget_st = exp(par[4])
+  nugget_t = exp(par[5])
+  nugget_s = exp(par[6])
   
   D = sqrt((D1/beta1)^2+(D2/beta2)^2)
   
@@ -403,13 +422,51 @@ lik2 = function(par){
   diag(S)=diag(S)+nugget_st
   S[which(D2 == 0)]<-S[which(D2 == 0)]+nugget_t
   S[which(D1 == 0)]<-S[which(D1 == 0)]+nugget_s
-  mu = b0 + b1*x+b2*y
   
-  temp=(determinant(S, logarithm=T)$modulus + t(z-mu) %*% solve(S) %*% (z-mu))/2
-  return(temp) 
+  temp1=determinant(S, logarithm=T)$modulus
+  S_inv <- chol2inv(chol(S))
+  temp2=determinant((t(M) %*% S_inv %*% M), logarithm=T)$modulus
+  
+  temp3= t(y1) %*% (S_inv - S_inv %*% M %*% 
+                      solve( t(M) %*% S_inv %*% M) 
+                    %*% t(M) %*% S_inv) %*% y1
+  
+  temp=temp1+temp2+temp3
+  return(temp)
 }
 
-ini2 = c(2.84,.53,3.48,-3000,80,25,-10,-10,-10)
-fit2=nlm(lik2, ini2,print.level=2,stepmax=5, iterlim=10000)
+fit.exp=nlm(reml.exp, c(2.34,-.630,1.119,1.935,3.53,.889), print.level=2, stepmax=2)
+#make sure to run this sequentially par is defined above as well. 
+#I will try to clean code soon
+par <- fit.exp$estimate
+alpha = exp(par[1])
+beta1 = exp(par[2])
+beta2 = exp(par[3])
+nugget_st = exp(par[4])
+nugget_t = exp(par[5])
+nugget_s = exp(par[6])
+
+D = sqrt((D1/beta1)^2+(D2/beta2)^2)
+
+K = alpha*exp(-D)
+diag(K)=diag(K)+nugget_st
+K[which(D2 == 0)]<-K[which(D2 == 0)]+nugget_t
+K[which(D1 == 0)]<-K[which(D1 == 0)]+nugget_s
+
+reg.beta.exp= solve(t(M) %*% solve(K) %*% M) %*% 
+  t(M) %*% solve(K) %*% z
 
 
+##### kriging results comparison  #####
+
+MSPE.mle1=mean((PM10-krig.cv)^2)
+MAE.mle1=mean(abs(PM10-krig.cv))
+
+MSPE.mle2=mean((PM10-krig.sp.cv)^2)
+MAE.mle2=mean(abs(PM10-krig.sp.cv))
+
+### Plot kriging result comparisons ###
+
+
+#compare fitted variogram
+library(gstat)
