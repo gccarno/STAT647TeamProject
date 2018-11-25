@@ -190,7 +190,7 @@ loc0 <- madrid_air_01[,c('lon','lat')]
 n <- nrow(D)
 SSE.ols1.cv <- rep(NA,n)
 krig.ols1.cv <- rep(NA,n)
-fit.ols1.pars.cv <- matrix(rep(NA,n*3),ncol=3)
+fit.ols1.pars.cv <- matrix(rep(NA,n*6),ncol=6)
 #cross-validated
 for (i in 1:n){
 #i=12
@@ -224,8 +224,8 @@ fit.ols1=nlm(ols1,c(2.812042,1.184425,0), print.level=1, stepmax=2, iterlim=1000
 
 SSE.ols1.cv[i] <- fit.ols1$minimum
 fit.ols1.pars <- exp(fit.ols1$estimate)
-fit.ols1.pars.cv[i,] <- fit.ols1.pars
-betas <- coef(myreg)
+fit.ols1.pars.cv[i,c(1,2,3)] <- fit.ols1.pars
+fit.ols1.pars.cv[i,c(4,5,6)] <- coef(myreg)
 
 K=fit.ols1.pars[1]*exp(-D.cv/fit.ols1.pars[2])
 diag(K) <- diag(K) +fit.ols1.pars[3]
@@ -248,7 +248,7 @@ SSE.ols1.cv
 #cross-validated
 SSE.ols2.cv <- rep(NA,n)
 krig.ols2.cv <- rep(NA,n)
-fit.ols2.pars.cv <- matrix(rep(NA,n*4),ncol=4)
+fit.ols2.pars.cv <- matrix(rep(NA,n*7),ncol=7)
 for (i in 1:n){
   #i=12
   lat.cv <- lat[-i]
@@ -287,8 +287,8 @@ SSE.ols2.cv[i] <- fit.ols2$minimum
 fit.ols2.pars <- fit.ols2$estimate
 fit.ols2.pars[c(1,2,4)] <- exp(fit.ols2$estimate[c(1,2,4)])
 fit.ols2.pars[3] <- 5*exp(fit.ols2.pars[3])/(1+exp(fit.ols2.pars[3])) 
-fit.ols2.pars.cv[i,] <- fit.ols2.pars
-betas <- coef(myreg)
+fit.ols2.pars.cv[i,1:4] <- fit.ols2.pars
+fit.ols2.pars.cv[i,5:7] <- coef(myreg)
 
 K=fit.ols2.pars[1]*exp(-D.cv/fit.ols2.pars[2])
 diag(K) <- diag(K) +fit.ols1.pars[3]
@@ -489,12 +489,12 @@ y1=(diag(1, n,n)-M %*% solve(t(M) %*% M) %*% t(M)) %*% z
 # run 6 fold cross validation on the stations, 12 is an even multiple of 6
 krig.reml.cv <- rep(NA,n)
 reml.matern.mle.cv <- rep(NA,6)
-reml.matern.par.cv <- matrix(rep(NA,6*7),ncol=7)
+reml.matern.par.cv <- matrix(rep(NA,6*10),ncol=10)
 for (i in 1:6){
 mask <- seq(from = i, to = n, by=6)
 final.cv <- final[-mask,]
-x.cv <- final.cv$lon
-y.cv <- final.cv$lat
+x.cv <- final.cv$lat
+y.cv <- final.cv$lon
 D1.cv = rdist.earth(cbind(x.cv,y.cv),miles=F)
 D2.cv = rdist(final.cv$date)
 z.cv = as.matrix(final.cv$PM10,ncol=1)
@@ -539,7 +539,7 @@ reml.matern.par <- fit$estimate
 reml.matern.mle.cv[i] <- fit$minimum
 reml.matern.par[c(1,2,3,4,6,7)] <- exp(reml.matern.par[c(1,2,3,5,6,7)])
 reml.matern.par[4] <- 5*exp(reml.matern.par[4])/(1+exp(reml.matern.par[4]))
-reml.matern.par.cv[i,] <- reml.matern.par
+reml.matern.par.cv[i,1:7] <- reml.matern.par
 
 D.cv = sqrt((D1.cv/reml.matern.par[2])^2+(D2.cv/reml.matern.par[3])^2)
 
@@ -550,6 +550,7 @@ K[which(D1.cv == 0)]<-K[which(D1.cv == 0)]+reml.matern.par[7]
 
 reg.beta= solve(t(M.cv) %*% solve(K) %*% M.cv) %*% 
   t(M.cv) %*% solve(K) %*% z.cv
+reml.matern.par.cv[i,8:10] <- reg.beta
 
 ### Run the Kriging
 
@@ -569,14 +570,14 @@ reml.matern.par.cv
 
 ### Exponential Spatial Distance Model ###
 krig.reml2.cv <- rep(NA,n)
-reml.exp.par.cv <- matrix(rep(NA,6*6),ncol=6)
+reml.exp.par.cv <- matrix(rep(NA,6*9),ncol=9)
 reml.exp.mle.cv <- rep(NA,6)
 for (i in 1:6){
   #i=1
   mask <- seq(from = i, to = n, by=6)
   final.cv <- final[-mask,]
-  x.cv <- final.cv$lon
-  y.cv <- final.cv$lat
+  x.cv <- final.cv$lat
+  y.cv <- final.cv$lon
   D1.cv = rdist.earth(cbind(x.cv,y.cv),miles=F)
   D2.cv = rdist(final.cv$date)
   z.cv = as.matrix(final.cv$PM10,ncol=1)
@@ -617,7 +618,7 @@ fit.exp=nlm(reml.exp, c(2.34,-.630,1.119,1.935,3.53,.889), print.level=1, stepma
 reml.exp.par <- fit.exp$estimate
 reml.exp.par[c(1,2,3,4,5,6)] <- exp(reml.exp.par[c(1,2,3,4,5,6)])
 #reml.exp.par[4] <- 5*exp(reml.exp.par[4])/(1+exp(reml.exp.par[4]))
-reml.exp.par.cv[i,] <- reml.exp.par
+reml.exp.par.cv[i,1:6] <- reml.exp.par
 reml.exp.mle.cv[i] <- fit.exp$minimum
 
 D.cv = sqrt((D1.cv/reml.exp.par[2])^2+(D2.cv/reml.exp.par[3])^2)
@@ -629,6 +630,7 @@ K[which(D1.cv == 0)]<-K[which(D1.cv == 0)]+reml.exp.par[6]
 
 reg.beta= solve(t(M.cv) %*% solve(K) %*% M.cv) %*% 
   t(M.cv) %*% solve(K) %*% z.cv
+reml.exp.par.cv[i,7:9] <- reg.beta
 
 ### Run the Kriging
 
@@ -643,22 +645,45 @@ mu.new=reg.beta[1]+reg.beta[2]*final[mask,'lat'] +reg.beta[3]*final[mask,'lon']
 krig.reml2.cv[mask]=krig + mu.new
 }
 krig.reml2.cv
+reml.exp.par.cv
+reml.exp.mle.cv
+
 
 ##### Fitted Parameter Value Comparison #####
-colMeans(fit.ols1.pars.cv)
-colMeans(fit.ols2.pars.cv)
-colMeans(iso.par.cv)
-colMeans(sp.par.cv)
-colMeans(reml.matern.par.cv)
-colMeans(reml.exp.par.cv)
+ols1.pars <- colMeans(fit.ols1.pars.cv)
+names(ols1.pars) <- c('alpha','beta','nugget','b0','b1','b2')
+ols2.pars <- colMeans(fit.ols2.pars.cv)
+names(ols2.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2')
+iso.matern.pars <- colMeans(iso.par.cv)
+names(iso.matern.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2')
+sp.pars <- colMeans(sp.par.cv)
+names(sp.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2','spatial variation')
+time1.pars <- colMeans(reml.matern.par.cv)
+names(time1.pars) <- c('alpha','beta1','beta2','nu','nugget_st'
+                       ,'nugget_t','nugget_s','b0','b1','b2')
+time2.pars <- colMeans(reml.exp.par.cv)
+names(time2.pars) <- c('alpha','beta1','beta2','nugget_st'
+                       ,'nugget_t','nugget_s','b0','b1','b2')
+
+t(reml.exp.par.cv)
 
 ##### Likelihood and SSE Comparisons #####
 mean(SSE.ols1.cv)
 mean(SSE.ols2.cv)
 mean(mle.cv)
 mean(mle.sp.cv)
-mean(reml.matern.mle.cv)
-mean(reml.exp.mle.cv)
+
+#MLE
+(mle.sp.cv[i] <- -1/2*log(2*pi) + fit.mle3$minimum)
+mean(-1/2*log(2*pi) + reml.matern.mle.cv)
+mean(-1/2*log(2*pi) + reml.exp.mle.cv)
+
+#AIC 
+
+mean(aic.cv)
+mean(aic.sp.cv)
+mean(AIC(-1/2*log(2*pi) + reml.matern.mle.cv,7))
+mean(AIC(-1/2*log(2*pi) + reml.exp.mle.cv,6))
 
 ### Compare via AIC ###
 
@@ -695,7 +720,16 @@ MAE.reml1.all=mean(abs(final$PM10-krig.reml.cv))
 MSPE.reml2.all=mean((final$PM10-krig.reml2.cv)^2)
 MAE.reml2.all=mean(abs(final$PM10-krig.reml2.cv))
 
+MSPE <- c(MSPE.ols1, MSPE.ols2,MSPE.mle1,MSPE.mle2
+          ,MSPE.reml1,MSPE.reml2,MSPE.reml1.all,MSPE.reml2.all)
+MAE <- c(MAE.ols1, MAE.ols2,MAE.mle1,MAE.mle2
+         ,MAE.reml1,MAE.reml2,MAE.reml1.all,MAE.reml2.all)
+cbind(MSPE,MAE)
 ## Very bad Kriging results from running REML
+
+## Collect Kriging Results in a table 
+
+cbind(krig.ols1.cv,krig.ols2.cv,krig.cv,krig.sp.cv,k_vals,k_vals2)
 
 ### Plot kriging result comparisons ###
 
