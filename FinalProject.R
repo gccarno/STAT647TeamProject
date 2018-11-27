@@ -146,6 +146,13 @@ baylor <- qmap(location = "baylor university", zoom = 14, maptype = 15434,
 qmplot(madrid_no_na$lon, madrid_no_na$lat, data = madrid_no_na
        , colour = PM10, size = PM10, darken = .3)
 
+par(mfrow=c(1,1),mai=c(.5,.5,.5,.5))
+quilt.plot(madrid_air_01$lon,madrid_air_01$lat,madrid_air_01$PM10)
+
+#AIC function
+AIC <- function(mle2,p){
+  return(2*p -2*mle2)
+}
 
 
 #Run the non-stationary model
@@ -162,7 +169,25 @@ qmplot(madrid_no_na$lon, madrid_no_na$lat, data = madrid_no_na
 lat <- madrid_air_01[!is.na(madrid_air_01$PM10),'lat']
 lon <- madrid_air_01[!is.na(madrid_air_01$PM10),'lon']
 PM10 <- madrid_air_01[!is.na(madrid_air_01$PM10),'PM10']
-loc0 <- madrid_air_01[,c('lon','lat')]
+loc0 <- madrid_air_01[!is.na(madrid_air_01$PM10),c('lon','lat')]
+
+#directional variogram
+v2 <- variog4(coords = loc0, data = PM10)
+plot(v2, main="Directional Variogram of PM10 for Madrid June 01, 2015",
+     xlab="Distance, note these distances are not geodesic and therefore are not reasonable",
+     ylab="Semi-variance") 
+title(main="Directional Variogram of PM10 for Madrid June 01, 2015")
+
+lat.all <- madrid_air[!is.na(madrid_air$PM10),'lat']
+lon.all <- madrid_air[!is.na(madrid_air$PM10),'lon']
+PM10.all <- madrid_air[!is.na(madrid_air$PM10),'PM10']
+loc0.all <- madrid_air[!is.na(madrid_air$PM10),c('lon','lat')]
+
+v2.all <- variog4(coords = loc0.all, data = PM10.all)
+plot(v2.all, main="Directional Variogram of PM10 for Madrid May 25 to June 11, 2015",
+     xlab="Distance, note these distances are not geodesic and therefore are not reasonable",
+     ylab="Semi-variance") 
+title(main="Directional Variogram of PM10 for Madrid May 25 to June 11, 2015")
 
 #quilt plot
 quilt.plot(madrid_air_01[,c('lon')],madrid_air_01[,c('lat')],madrid_air_01[,c('PM10')])
@@ -170,6 +195,7 @@ quilt.plot(madrid_air_01[,c('lon')],madrid_air_01[,c('lat')],madrid_air_01[,c('P
 #variogram
 m1 <- lm(PM10 ~ lat + lon, data=madrid_air_01)
 summary(m1)
+par(mfrow=c(2,2))
 plot(m1)
 
 #run ols
@@ -229,7 +255,7 @@ fit.ols1.pars.cv[i,c(4,5,6)] <- coef(myreg)
 
 K=fit.ols1.pars[1]*exp(-D.cv/fit.ols1.pars[2])
 diag(K) <- diag(K) +fit.ols1.pars[3]
-mu=betas[1]+betas[2]*lat[i] +betas[3]*lon[i]
+mu=fit.ols1.pars.cv[i,4]+fit.ols1.pars.cv[i,5]*lat[i] +fit.ols1.pars.cv[i,6]*lon[i]
 D2=D[-i, i]
 k=fit.ols1.pars[1]*exp(-D2/fit.ols1.pars[2])
 weight=solve(K) %*% k 
@@ -282,7 +308,7 @@ ols2=function(par){
   
 }
 
-fit.ols2=nlm(ols2, c(2, 2.303,  0.4857, -3),print.level=2,stepmax = 2,iterlim=10000)
+fit.ols2=nlm(ols2, c(2, 2.303,  0.4857, -3),print.level=1,stepmax = 2,iterlim=10000)
 SSE.ols2.cv[i] <- fit.ols2$minimum
 fit.ols2.pars <- fit.ols2$estimate
 fit.ols2.pars[c(1,2,4)] <- exp(fit.ols2$estimate[c(1,2,4)])
@@ -292,7 +318,7 @@ fit.ols2.pars.cv[i,5:7] <- coef(myreg)
 
 K=fit.ols2.pars[1]*exp(-D.cv/fit.ols2.pars[2])
 diag(K) <- diag(K) +fit.ols1.pars[3]
-mu=betas[1]+betas[2]*lat[i] +betas[3]*lon[i]
+mu=fit.ols2.pars.cv[i,5]+fit.ols2.pars.cv[i,6]*lat[i] +fit.ols2.pars.cv[i,7]*lon[i]
 D2=D[-i, i]
 k=fit.ols1.pars[1]*exp(-D2/fit.ols2.pars[2])
 weight=solve(K) %*% k 
@@ -635,9 +661,9 @@ reml.exp.par.cv[i,7:9] <- reg.beta
 ### Run the Kriging
 
 mu=reg.beta[1]+reg.beta[2]*final[-mask,'lat'] +reg.beta[3]*final[-mask,'lon']
-D3 = sqrt((D1/reml.matern.par[2])^2+(D2/reml.matern.par[3])^2)
+D3 = sqrt((D1/reml.exp.par[2])^2+(D2/reml.exp.par[3])^2)
 D3=D3[-mask, mask]
-k=reml.matern.par[1]*Matern(D3, smoothness=reml.matern.par[4])
+k=reml.exp.par[1]*Matern(D3, smoothness=reml.exp.par[4])
 weight=solve(K) %*% k 
 e1=final[-mask,'PM10']-mu
 krig=t(weight) %*% e1
@@ -653,6 +679,7 @@ reml.exp.mle.cv
 ols1.pars <- colMeans(fit.ols1.pars.cv)
 names(ols1.pars) <- c('alpha','beta','nugget','b0','b1','b2')
 ols2.pars <- colMeans(fit.ols2.pars.cv)
+matrix(colMeans(fit.ols2.pars.cv[-10,]),ncol=1)
 names(ols2.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2')
 iso.matern.pars <- colMeans(iso.par.cv)
 names(iso.matern.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2')
@@ -664,7 +691,7 @@ names(time1.pars) <- c('alpha','beta1','beta2','nu','nugget_st'
 time2.pars <- colMeans(reml.exp.par.cv)
 names(time2.pars) <- c('alpha','beta1','beta2','nugget_st'
                        ,'nugget_t','nugget_s','b0','b1','b2')
-
+matrix(colMeans(reml.exp.par.cv[c(-1,-4),]),ncol=1)
 t(reml.exp.par.cv)
 
 ##### Likelihood and SSE Comparisons #####
@@ -729,7 +756,28 @@ cbind(MSPE,MAE)
 
 ## Collect Kriging Results in a table 
 
-cbind(krig.ols1.cv,krig.ols2.cv,krig.cv,krig.sp.cv,k_vals,k_vals2)
+ols.exp <- krig.ols1.cv
+ols.matern <- krig.ols2.cv
+iso.matern <- krig.cv
+sp.matern <- krig.sp.cv
+st.matern <- k_vals2
+
+krig.results<-data.frame(cbind(lat,lon,PM10,ols.exp
+                               ,ols.matern,iso.matern,sp.matern,st.matern))
+krig.results2 <- data.frame(krig.results[1:2], stack(krig.results[3:ncol(krig.results)]))
+
+library(ggplot2)
+ggplot(krig.results2,aes(lon,lat))+ geom_point() +
+  geom_jitter(aes(colour = values,shape=ind),width=.01)+
+  scale_colour_gradient2(low = "blue", mid = "yellow",
+                         high = "red", midpoint=26) + 
+  ggtitle("PM10 Concentrations compared to Krigged Values") +
+  labs(x="Longitude",y="Latitude")
+
+ggplot(krig.results2,aes(lon,lat,shape=V3))+ geom_point() +
+  geom_jitter()+
+  scale_colour_gradient2(low = "blue", mid = "yellow",
+                         high = "red", midpoint=26)
 
 ### Plot kriging result comparisons ###
 
