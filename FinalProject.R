@@ -308,7 +308,7 @@ ols2=function(par){
   
 }
 
-fit.ols2=nlm(ols2, c(2, 2.303,  0.4857, -3),print.level=1,stepmax = 2,iterlim=10000)
+fit.ols2=nlm(ols2, c(2.86, 0,  0, -10),print.level=1,stepmax = 2,iterlim=10000)
 SSE.ols2.cv[i] <- fit.ols2$minimum
 fit.ols2.pars <- fit.ols2$estimate
 fit.ols2.pars[c(1,2,4)] <- exp(fit.ols2$estimate[c(1,2,4)])
@@ -329,6 +329,7 @@ krig.ols2.cv[i]=krig + mu
 krig.ols2.cv
 fit.ols2.pars.cv
 SSE.ols2.cv
+colMeans(fit.ols2.pars.cv)
 
 #Isotropic Matern
 #LOOCV requires a nested loop
@@ -345,7 +346,7 @@ lon.cv <- lon[-i]
 PM10.cv <- PM10[-i]
 D.cv <- rdist.earth(cbind(lat.cv,lon.cv),miles=FALSE)
 
-par=c( 2,2.3,0,-3304.78, 85.10, 30.45)
+#par=c( 2,2.3,0,-3304.78, 85.10, 30.45)
 mle.1=function(par){
   
   alpha=exp(par[1])
@@ -367,14 +368,14 @@ mle.1=function(par){
         + t(PM10.cv-mu) %*% chol2inv(chol(S)) %*% (PM10.cv-mu))/2
   return(temp)
 }
-ini=c( 3,2.3,17,0,-3304.78, 85.10, 30.45)
-fit.mle1=nlm(mle.1, ini,print.level=1,stepmax=2, iterlim=10000)
+ini=c( 3,2.3,1,0,-3304.78, 85.10, 30.45)
+fit.mle1=nlm(mle.1, ini,print.level=1,stepmax=3, iterlim=10000)
 
 #parameter estimates
 back.mle2 <- function(par){
   alpha=exp(par[1])
   beta=exp(par[2])
-  nu=3*exp(par[3])/(1+exp(par[3]))
+  nu=5*exp(par[3])/(1+exp(par[3]))
   nug=exp(par[4])
   b0=par[5]
   b1=par[6]
@@ -408,24 +409,112 @@ iso.par.cv
 mle.cv
 aic.cv
 
+#Isotropic exponential
+#LOOCV requires a nested loop
+D <- rdist.earth(madrid_air_01[!is.na(madrid_air_01$PM10),c('lat','lon')], miles=FALSE)
+n <- nrow(D)
+mle.exp.cv <- rep(NA,n)
+aic.exp.cv <- rep(NA,n)
+krig.exp.cv <- rep(NA,n)
+iso.exp.par.cv <- matrix(rep(NA,n*6),ncol=6)
+#i <- 1
+for (i in 1:nrow(D)){
+  lat.cv <- lat[-i]
+  lon.cv <- lon[-i]
+  PM10.cv <- PM10[-i]
+  D.cv <- rdist.earth(cbind(lat.cv,lon.cv),miles=FALSE)
+  
+  # lat.cv <- lat[]
+  # lon.cv <- lon[]
+  # PM10.cv <- PM10[]
+  # D.cv <- rdist.earth(cbind(lat.cv,lon.cv),miles=FALSE)
+  
+  #par=c( 2,2.3,.1,-3304.78, 85.10, 30.45)
+  mle.1=function(par){
+    
+    alpha=exp(par[1])
+    beta=exp(par[2])
+    #nu=5*exp(par[3])/(1+exp(par[3]))
+    
+    nug=exp(par[3])
+    
+    b0=par[4]
+    b1=par[5]
+    b2=par[6]
+    
+    S=alpha*exp(-D.cv/beta)
+    diag(S)= diag(S)+ nug
+    
+    mu=b0+b1*lat.cv +b2*lon.cv
+    
+    temp=(determinant(S, logarithm=T)$modulus 
+          + t(PM10.cv-mu) %*% chol2inv(chol(S)) %*% (PM10.cv-mu))/2
+    return(temp)
+  }
+  ini=c( 2.9477095,0.2026348,-15.7,-3304.78, 84.932, 28.594)
+  fit.mle1=nlm(mle.1, ini,print.level=1,stepmax=2, iterlim=10000)
+  
+  #parameter estimates
+  back.mle2 <- function(par){
+    alpha=exp(par[1])
+    beta=exp(par[2])
+    nug=exp(par[3])
+    b0=par[4]
+    b1=par[5]
+    b2=par[6]
+    p_list <- c(alpha, beta,nug, b0, b1, b2)
+    return(p_list)
+  }
+  iso.par <- back.mle2(fit.mle1$estimate)
+  names(iso.par) <- c('alpha','beta','nugget','b0','b1','b2')
+  print(iso.par)
+  iso.exp.par.cv[i,] <- iso.par
+  
+  #MLE
+  (mle.exp.cv[i] <- -1/2*log(2*pi) + fit.mle1$minimum)
+  
+  #AIC 
+  (aic.exp.cv[i]  <- AIC(mle.exp.cv[i],7))
+  
+  #Kriging estimates
+  K=iso.par[1]*(1-exp(-D.cv/iso.par[2]))
+  diag(K) <- diag(K) + iso.par[3]
+  mu=iso.par[4]+iso.par[5]*lat[i] +iso.par[6]*lon[i]
+  D2=D[-i, i]
+  k=iso.par[1]*(1-exp(-D2/iso.par[2]))
+  weight=solve(K) %*% k 
+  e1=PM10[-i]-mu
+  krig=t(weight) %*% e1
+  krig.exp.cv[i]=krig + mu
+}
+krig.exp.cv
+iso.exp.par.cv
+mle.exp.cv
+aic.exp.cv
+
 # run with REML instead?
 D <- rdist.earth(madrid_air_01[!is.na(madrid_air_01$PM10),c('lat','lon')], miles=FALSE)
+lat <- madrid_air_01[!is.na(madrid_air_01$PM10),'lat']
+lon <- madrid_air_01[!is.na(madrid_air_01$PM10),'lon']
+PM10 <- madrid_air_01[!is.na(madrid_air_01$PM10),'PM10']
 n <- nrow(D)
 mle.sp.cv <- rep(NA,n)
 aic.sp.cv <- rep(NA,n)
 krig.sp.cv <- rep(NA,n)
 sp.par.cv <- matrix(rep(NA,n*8),ncol=8)
+#i =1
 for (i in 1:n){
   lat.cv <- lat[-i]
   lon.cv <- lon[-i]
   PM10.cv <- PM10[-i]
+  D.cv <- rdist.earth(cbind(lat.cv,lon.cv), miles=FALSE)
 #spatially varying model
-
+#par <- c( 1.694,2.3,17,0,-3304,85,30,0)
 mle3=function(par){ 
   
   alpha=exp(par[1])
   beta=exp(par[2])
-  nu=3*exp(par[3])/(1+exp(par[3]))
+  nu=5*exp(par[3])/(1+exp(par[3]))
   nug=par[4]
   
   b0=par[5]
@@ -452,7 +541,7 @@ fit.mle3=nlm(mle3, ini,print.level=1,iterlim=10000,stepmax=2)
 back.mle2 <- function(par){
   alpha=exp(par[1])
   beta=exp(par[2])
-  nu=3*exp(par[3])/(1+exp(par[3]))
+  nu=5*exp(par[3])/(1+exp(par[3]))
   nug=exp(par[4])
   b0=par[5]
   b1=par[6]
@@ -493,11 +582,110 @@ krig.sp.cv[i]=krig + mu
 krig.sp.cv
 sp.par.cv
 
+# mle.exp.sp.cv <- rep(NA,n)
+# aic.exp.sp.cv <- rep(NA,n)
+# krig.exp.sp.cv <- rep(NA,n)
+# sp.exp.par.cv <- matrix(rep(NA,n*7),ncol=7)
+# for (i in 1:n){
+#   lat.cv <- lat[-i]
+#   lon.cv <- lon[-i]
+#   PM10.cv <- PM10[-i]
+#   #spatially varying model
+#   par=c( 1.694,2.3,0,-3304,85,30,0)
+#   mle3=function(par){ 
+#     
+#     alpha=exp(par[1])
+#     beta=exp(par[2])
+#     #nu=3*exp(par[3])/(1+exp(par[3]))
+#     nug=par[3]
+#     
+#     b0=par[4]
+#     b1=par[5]
+#     b2=par[6]
+#     
+#     #vary over longitude
+#     alpha=alpha + exp(par[7]) * lon.cv
+#     alpha= matrix(alpha, ncol=1) %*% matrix(alpha, nrow=1)
+#     
+#     S=alpha*exp(-D.cv/beta)
+#     diag(S)=diag(S)+nug
+#     
+#     mu=b0+b1*lat.cv + b2*lon.cv
+#     
+#     temp=(determinant(S, logarithm=T)$modulus + t(PM10.cv-mu) %*% chol2inv(chol(S)) %*% (PM10.cv-mu))/2
+#     return(temp)
+#   }
+#   
+#   ini=c( 1.694,2.3,.1,-3304,85,30,0)
+#   fit.mle3=nlm(mle3, ini,print.level=1,iterlim=10000,stepmax=2)
+#   
+#   #parameter estimates
+#   back.mle2 <- function(par){
+#     alpha=exp(par[1])
+#     beta=exp(par[2])
+#     nug=exp(par[4])
+#     b0=par[5]
+#     b1=par[6]
+#     b2=par[7]
+#     var=exp(par[8])
+#     p_list <- c(alpha, beta, nug, b0, b1, b2, var)
+#     return(p_list)
+#   }
+#   spatio.par <- back.mle2(fit.mle3$estimate)
+#   #names(spatio.par) <- c('alpha','beta','nu','b0','b1','b2', 'spatial var')
+#   #print(spatio.par)
+#   print(i)
+#   sp.exp.par.cv[i,] <- spatio.par
+#   
+#   #MLE
+#   (mle.exp.sp.cv[i] <- -1/2*log(2*pi) + fit.mle3$minimum)
+#   
+#   #AIC 
+#   (aic.exp.sp.cv[i] <- AIC(mle.exp.sp.cv[i],7))
+#   
+#   ## spatially varying variance
+#   par <- spatio.par
+#   alpha=par[1] + exp(par[7]) * lon[-i]
+#   alpha= matrix(alpha, ncol=1) %*% matrix(alpha, nrow=1)
+#   K=alpha*exp(-D.cv/par[2])
+#   diag(K) <- diag(K) + par[3]
+#   mu=par[4]+par[5]*lat[i] +par[6]*lon[i]
+#   D2=D[-i, i]
+#   alpha1=par[1]+par[7] * lon[-i]
+#   alpha2=par[1]+ par[7] * lon[i]
+#   alpha= matrix(alpha1, ncol=1) %*% matrix(alpha2, nrow=1)
+#   k=alpha*exp(-D2/par[2])
+#   weight=solve(K) %*% k 
+#   e1=PM10[-i]-mu
+#   krig=t(weight) %*% e1
+#   krig.exp.sp.cv[i]=krig + mu
+# }
+# krig.exp.sp.cv
+# sp.exp.par.cv
+# mle.exp.sp.cv
+# aic.exp.sp.cv
+
 ### Space-Time Model
 ### Do k-fold cross validation in this case
 ### Switch to REML because MLE is having trouble with this data
 # Matern 
 final <- madrid_air[!is.na(madrid_air$PM10),c('lat','lon','PM10','date')]
+
+# run a linear model on all the space time data
+
+m.lin.sp <- lm(PM10 ~ lat + lon,data=final)
+summary(m.lin.sp)
+
+#to balance we can add date to the linear model
+m.lin.sp.2 <- lm(PM10 ~ lat + lon + date,data=final)
+summary(m.lin.sp.2)
+
+over_tim <- aggregate(final$PM10,list(Date=final$date),mean)
+plot(over_tim$Date,over_tim$x,main="PM10 Concentrations Over Time"
+     ,xlab="Date",ylab="PM10 Concentration",
+     col=ifelse(over_tim$Date=="2015-06-01",'red','black')
+     )
+abline(h=mean(over_tim$x))
 
 x = final$lon
 y = final$lat
@@ -683,6 +871,8 @@ matrix(colMeans(fit.ols2.pars.cv[-10,]),ncol=1)
 names(ols2.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2')
 iso.matern.pars <- colMeans(iso.par.cv)
 names(iso.matern.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2')
+iso.exp.pars <- colMeans(iso.exp.par.cv)
+names(iso.exp.pars) <- c('alpha','beta','nugget','b0','b1','b2')
 sp.pars <- colMeans(sp.par.cv)
 names(sp.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2','spatial variation')
 time1.pars <- colMeans(reml.matern.par.cv)
@@ -698,6 +888,7 @@ t(reml.exp.par.cv)
 mean(SSE.ols1.cv)
 mean(SSE.ols2.cv)
 mean(mle.cv)
+mean(mle.exp.cv)
 mean(mle.sp.cv)
 
 #MLE
@@ -707,10 +898,21 @@ mean(-1/2*log(2*pi) + reml.exp.mle.cv)
 
 #AIC 
 
-mean(aic.cv)
-mean(aic.sp.cv)
-mean(AIC(-1/2*log(2*pi) + reml.matern.mle.cv,7))
-mean(AIC(-1/2*log(2*pi) + reml.exp.mle.cv,6))
+aic1<-mean(aic.cv)
+aic5<-mean(aic.exp.cv)
+aic2<-mean(aic.sp.cv)
+aic3<-mean(AIC(-1/2*log(2*pi) + reml.matern.mle.cv,7))
+aic4<-mean(AIC(-1/2*log(2*pi) + reml.exp.mle.cv,6))
+
+#AICC
+
+AICC <- function(AIC,k,n){
+  return(AIC + (2*k**2 + 2*k)/(n-k-1))
+}
+mean(AICC(aic.cv,6,11))
+mean(AICC(aic.sp.cv,8,11))
+mean(AICC(AIC(-1/2*log(2*pi) + reml.matern.mle.cv,7),7,180))
+mean(AICC(AIC(-1/2*log(2*pi) + reml.exp.mle.cv,6),6,180))
 
 ### Compare via AIC ###
 
@@ -724,6 +926,9 @@ MAE.ols2=mean(abs(PM10-krig.ols2.cv))
 
 MSPE.mle1=mean((PM10-krig.cv)^2)
 MAE.mle1=mean(abs(PM10-krig.cv))
+
+MSPE.mle3=mean((PM10-krig.exp.cv)^2)
+MAE.mle3=mean(abs(PM10-krig.exp.cv))
 
 MSPE.mle2=mean((PM10-krig.sp.cv)^2)
 MAE.mle2=mean(abs(PM10-krig.sp.cv))
@@ -759,12 +964,15 @@ cbind(MSPE,MAE)
 ols.exp <- krig.ols1.cv
 ols.matern <- krig.ols2.cv
 iso.matern <- krig.cv
+iso.exp <- krig.exp.cv
 sp.matern <- krig.sp.cv
 st.matern <- k_vals2
+st.exp <- k_vals
 
+station_name <- as.character(madrid_air_01[is.na(madrid_air_01$PM10),'name'])
 krig.results<-data.frame(cbind(lat,lon,PM10,ols.exp
                                ,ols.matern,iso.matern,sp.matern,st.matern))
-krig.results2 <- data.frame(krig.results[1:2], stack(krig.results[3:ncol(krig.results)]))
+krig.results2 <- data.frame(station_name,krig.results[1:2], stack(krig.results[3:ncol(krig.results)]))
 
 library(ggplot2)
 ggplot(krig.results2,aes(lon,lat))+ geom_point() +
@@ -774,13 +982,64 @@ ggplot(krig.results2,aes(lon,lat))+ geom_point() +
   ggtitle("PM10 Concentrations compared to Krigged Values") +
   labs(x="Longitude",y="Latitude")
 
-ggplot(krig.results2,aes(lon,lat,shape=V3))+ geom_point() +
-  geom_jitter()+
-  scale_colour_gradient2(low = "blue", mid = "yellow",
-                         high = "red", midpoint=26)
+krig.results<-data.frame(cbind(lat,lon,PM10,ols.exp
+                               ,ols.matern,iso.matern,iso.exp,sp.matern,st.matern,st.exp))
+krig.results2 <- data.frame(station_name,krig.results[1:2], stack(krig.results[3:ncol(krig.results)]))
+
+mask <- which(1:nrow(krig.results2) %% 12 <= 5)
+group1<-krig.results2[mask,]
+group2<-krig.results2[-mask,]
+ggplot(group1,aes(x=station_name,y=values,color=ind)) + geom_point() + 
+  ggtitle("First half of stations") + labs(x="Station Name", y="PM10 Concenteration")
+ggplot(group2,aes(x=station_name,y=values,color=ind)) + geom_point() + 
+  ggtitle("Second half of stations") + labs(x="Station Name", y="PM10 Concenteration")
+
+
+# ggplot(krig.results2,aes(lon,lat,shape=V3))+ geom_point() +
+#   geom_jitter()+
+#   scale_colour_gradient2(low = "blue", mid = "yellow",
+#                          high = "red", midpoint=26)
 
 ### Plot kriging result comparisons ###
 
 
 #compare fitted variogram
 library(gstat)
+
+d_example <- seq(0,100,by=0.01)
+##### Fitted Parameter Value Comparison #####
+#ols1.pars <- colMeans(fit.ols1.pars.cv)
+#names(ols1.pars) <- c('alpha','beta','nugget','b0','b1','b2')
+
+par(mfrow=c(1,1))
+y.ols1<-ols1.pars[1]*(1-exp(-d_example/ols1.pars[2]))+ols1.pars[3]
+plot(d_example,y.ols1)
+
+#ols2.pars <- colMeans(fit.ols2.pars.cv)
+ols2.pars.c <- colMeans(fit.ols2.pars.cv[-10,])
+#matrix(colMeans(fit.ols2.pars.cv[-10,]),ncol=1)
+#names(ols2.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2')
+
+#Matern(D, smoothness=nu)
+y.ols1<-ols2.pars[1]*(1-Matern(d_example, smoothness=ols2.pars[3], range=ols2.pars[2]))+ols2.pars[4]
+y.ols1.c<-ols2.pars.c[1]*(1-Matern(d_example, smoothness=ols2.pars.c[3], range=ols2.pars.c[2]))+ols2.pars.c[4]
+plot(d_example,y.ols1)
+plot(d_example,y.ols1.c)
+
+iso.matern.pars <- colMeans(iso.par.cv)
+names(iso.matern.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2')
+
+d_mle<- seq(0,10,by=0.01)
+y.mle1<-iso.matern.pars[1]*(1-Matern(d_mle, smoothness=iso.matern.pars[3], range=iso.matern.pars[2]))
+plot(d_mle,y.mle1)
+
+sp.pars <- colMeans(sp.par.cv)
+names(sp.pars) <- c('alpha','beta','nu','nugget','b0','b1','b2','spatial variation')
+time1.pars <- colMeans(reml.matern.par.cv)
+names(time1.pars) <- c('alpha','beta1','beta2','nu','nugget_st'
+                       ,'nugget_t','nugget_s','b0','b1','b2')
+time2.pars <- colMeans(reml.exp.par.cv)
+names(time2.pars) <- c('alpha','beta1','beta2','nugget_st'
+                       ,'nugget_t','nugget_s','b0','b1','b2')
+matrix(colMeans(reml.exp.par.cv[c(-1,-4),]),ncol=1)
+t(reml.exp.par.cv)
